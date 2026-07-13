@@ -1,0 +1,7 @@
+node_modules/
+data/
+work/
+outputs/
+.upgrade-revision
+.DS_Store
+*.log
