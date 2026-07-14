@@ -46,6 +46,11 @@ async function loadInstallConfig() {
 
 async function routeRequest(req, res) {
   const url = new URL(req.url, 'http://127.0.0.1');
+  if (req.method === 'GET' && url.pathname === '/api/runtime') {
+    return sendJson(res, 200, {
+      publicBaseUrl: normalizePublicBaseUrl(process.env.PUBLIC_BASE_URL || ''),
+    });
+  }
   if (req.method === 'GET' && url.pathname === '/api/state') {
     return sendJson(res, 200, state);
   }
@@ -137,6 +142,10 @@ async function routeRequest(req, res) {
   }
 
   return serveStatic(req, res, url.pathname);
+}
+
+function normalizePublicBaseUrl(value) {
+  return String(value || '').trim().replace(/\/+$/, '');
 }
 
 async function loadParsedSources(viewState) {

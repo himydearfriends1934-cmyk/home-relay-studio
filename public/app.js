@@ -31,11 +31,12 @@ const ui = {
 };
 
 let state = null;
+let runtime = { publicBaseUrl: '' };
 
 await boot();
 
 async function boot() {
-  state = await api('/api/state');
+  [state, runtime] = await Promise.all([api('/api/state'), api('/api/runtime')]);
   renderShell();
   wireEvents();
   renderEditors();
@@ -937,7 +938,8 @@ function copyText(value) {
 }
 
 function getExportUrl(format, download = false) {
-  const url = new URL(`/api/export/${encodeURIComponent(format)}`, window.location.origin);
+  const baseUrl = runtime.publicBaseUrl || window.location.origin;
+  const url = new URL(`/api/export/${encodeURIComponent(format)}`, baseUrl);
   if (download) url.searchParams.set('download', '1');
   return url.toString();
 }
