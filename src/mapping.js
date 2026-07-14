@@ -1,14 +1,39 @@
 import { escapeRegExp, normalizeName, sanitizeTag, uniqueBy } from './utils.js';
 
 export function buildAssignments(state, parsedSources) {
-  const egressById = new Map(state.egresses.map((egress) => [egress.id, egress]));
-  const defaultEgressId = state.export?.defaultEgressId || state.egresses.find((egress) => egress.enabled)?.id || '';
+  const warnings = [];
+  const enabledEgresses = state.egresses.filter((egress) => egress.enabled);
+  const usableEgresses = enabledEgresses.filter((egress) => {
+    const reason = invalidEgressReason(egress);
+    if (reason) {
+      warnings.push({
+        type: 'invalid-egress',
+        egressName: egress.name,
+        message: `Egress "${egress.name}" was skipped: ${reason}.`,
+      });
+      return false;
+    }
+    return true;
+  });
+  const egressById = new Map(usableEgresses.map((egress) => [egress.id, egress]));
+  const configuredDefault = state.export?.defaultEgressId || '';
+  const defaultEgressId = configuredDefault
+    ? egressById.has(configuredDefault)
+      ? configuredDefault
+      : ''
+    : usableEgresses[0]?.id || '';
+  if (configuredDefault && !defaultEgressId) {
+    warnings.push({
+      type: 'default-egress-unavailable',
+      message: 'The configured default egress is unavailable; automatic fallback was blocked to prevent a wrong exit.',
+    });
+  }
   const rules = [...state.rules]
     .filter((rule) => rule.enabled)
     .sort((a, b) => b.priority - a.priority);
 
   const assignments = [];
-  const warnings = [];
+  const usedTags = new Set();
 
   for (const bundle of parsedSources) {
     for (const node of bundle.nodes) {
@@ -25,13 +50,21 @@ export function buildAssignments(state, parsedSources) {
       for (const targetId of targets) {
         const egress = egressById.get(targetId);
         if (!egress) continue;
+        const baseTag = createAssignmentTag(bundle.source.name, node.name, egress.name, targetId);
+        let tag = baseTag;
+        let suffix = 2;
+        while (usedTags.has(tag)) {
+          tag = sanitizeTag(`${baseTag}-${suffix}`);
+          suffix += 1;
+        }
+        usedTags.add(tag);
         assignments.push({
           sourceId: bundle.source.id,
           sourceName: bundle.source.name,
           node,
           egress,
           egressId: targetId,
-          tag: createAssignmentTag(bundle.source.name, node.name, egress.name, targetId),
+          tag,
         });
       }
     }
@@ -43,10 +76,23 @@ export function buildAssignments(state, parsedSources) {
   };
 }
 
+function invalidEgressReason(egress) {
+  if (egress.protocol === 'direct') return '';
+  if (!egress.server) return 'missing server';
+  if (!Number.isInteger(egress.port) || egress.port < 1 || egress.port > 65535) return 'invalid port';
+  if ((egress.protocol === 'vmess' || egress.protocol === 'vless') && !egress.uuid) return 'missing UUID';
+  if ((egress.protocol === 'trojan' || egress.protocol === 'hysteria2') && !egress.password) return 'missing password';
+  if (egress.protocol === 'shadowsocks' && (!egress.method || !egress.password)) return 'missing cipher or password';
+  if (egress.protocol === 'tuic' && (!egress.uuid || !egress.password)) return 'missing UUID or password';
+  return '';
+}
+
 export function resolveNodeTargets(node, source, rules, defaultEgressId, egressById) {
   let targets = [];
+  let matchedExplicitTargets = false;
   for (const rule of rules) {
     if (!ruleMatchesNode(rule, node, source)) continue;
+    if (rule.targets.length > 0) matchedExplicitTargets = true;
     if (rule.targetMode === 'replace') {
       targets = rule.targets.slice();
     } else {
@@ -56,7 +102,7 @@ export function resolveNodeTargets(node, source, rules, defaultEgressId, egressB
   }
 
   targets = uniqueBy(targets.filter((id) => egressById.has(id)), (id) => id);
-  if (targets.length === 0 && defaultEgressId && egressById.has(defaultEgressId)) {
+  if (targets.length === 0 && !matchedExplicitTargets && defaultEgressId && egressById.has(defaultEgressId)) {
     targets = [defaultEgressId];
   }
   return targets;

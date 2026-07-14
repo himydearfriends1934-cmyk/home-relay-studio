@@ -11,12 +11,19 @@ import { parseSubscriptionContent } from './parsers.js';
 import { getQrPayload } from './qr.js';
 import { normalizeState } from './state.js';
 import { loadState, saveState } from './store.js';
+import {
+  createSubscriptionToken,
+  isUsableSubscriptionToken,
+  subscriptionTokenMatches,
+} from './subscription-token.js';
 import { getUpgradeStatus, runUpgrade, scheduleUpgradeRestart } from './upgrader.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const projectRoot = path.resolve(__dirname, '..');
 const publicDir = path.join(projectRoot, 'public');
 const installConfig = await loadInstallConfig();
+const subscriptionToken = await resolveSubscriptionToken(installConfig);
+const publicBaseUrl = normalizePublicBaseUrl(process.env.PUBLIC_BASE_URL || '');
 
 const state = await loadState();
 
@@ -44,12 +51,48 @@ async function loadInstallConfig() {
   }
 }
 
+async function resolveSubscriptionToken(config) {
+  const configuredByEnvironment = String(process.env.SUBSCRIPTION_TOKEN || '').trim();
+  if (configuredByEnvironment) {
+    if (!isUsableSubscriptionToken(configuredByEnvironment)) {
+      throw new Error('SUBSCRIPTION_TOKEN must contain at least 32 characters.');
+    }
+    return configuredByEnvironment;
+  }
+
+  if (isUsableSubscriptionToken(config.subscriptionToken)) {
+    await restrictInstallConfigPermissions();
+    return config.subscriptionToken;
+  }
+
+  const token = createSubscriptionToken();
+  const nextConfig = { ...config, subscriptionToken: token };
+  const configPath = path.join(projectRoot, '.home-relay-studio.json');
+  await fs.writeFile(configPath, `${JSON.stringify(nextConfig, null, 2)}\n`, {
+    encoding: 'utf8',
+    mode: 0o600,
+  });
+  await restrictInstallConfigPermissions();
+  Object.assign(config, nextConfig);
+  return token;
+}
+
+async function restrictInstallConfigPermissions() {
+  if (process.platform === 'win32') return;
+  try {
+    await fs.chmod(path.join(projectRoot, '.home-relay-studio.json'), 0o600);
+  } catch {
+    // A read-only environment may provide the token through SUBSCRIPTION_TOKEN instead.
+  }
+}
+
 async function routeRequest(req, res) {
   const url = new URL(req.url, 'http://127.0.0.1');
   if (req.method === 'GET' && url.pathname === '/api/runtime') {
     return sendJson(res, 200, {
-      publicBaseUrl: normalizePublicBaseUrl(process.env.PUBLIC_BASE_URL || ''),
-    });
+      publicBaseUrl,
+      subscriptionToken,
+    }, { 'cache-control': 'no-store' });
   }
   if (req.method === 'GET' && url.pathname === '/api/state') {
     return sendJson(res, 200, state);
@@ -91,17 +134,35 @@ async function routeRequest(req, res) {
     });
   }
   if (req.method === 'GET' && url.pathname.startsWith('/api/export/')) {
+    if (!subscriptionTokenMatches(subscriptionToken, url.searchParams.get('token') || '')) {
+      return sendText(res, 403, 'Invalid or missing subscription token.');
+    }
     const format = url.pathname.slice('/api/export/'.length);
     const viewState = normalizeState(state);
     const parsedSources = await loadParsedSources(viewState);
-    const output = getClientExport(format, viewState, parsedSources);
+    const exportUrl = publicBaseUrl ? buildPublicExportUrl(format) : '';
+    const output = getClientExport(format, viewState, parsedSources, { exportUrl });
     if (!output) {
       return sendText(res, 404, 'Unknown export format');
+    }
+    if (output.error) {
+      return sendText(res, 422, output.error);
+    }
+    if (!output.nodeCount) {
+      const failedSource = parsedSources.find((bundle) => bundle.errors?.length);
+      const detail = failedSource
+        ? ` Source "${failedSource.source.name}": ${failedSource.errors[0]}`
+        : '';
+      return sendText(res, 422, `No usable nodes were generated. Check the source preview, enabled egress, and rule targets.${detail}`);
     }
     const headers = {
       'content-type': output.contentType,
       'cache-control': 'no-store',
+      'x-relay-node-count': String(output.nodeCount),
     };
+    if (output.id === 'shadowrocket') {
+      headers['content-disposition'] = `inline; filename="${output.filename}"`;
+    }
     if (url.searchParams.get('download') === '1') {
       headers['content-disposition'] = `attachment; filename="${output.filename}"`;
     }
@@ -131,7 +192,7 @@ async function routeRequest(req, res) {
   if (req.method === 'POST' && url.pathname === '/api/diagnose') {
     const body = await readJsonBody(req);
     const viewState = normalizeState(body?.state || state);
-    const report = await diagnoseState(viewState);
+    const report = await diagnoseState(viewState, loadSourceContent);
     return sendJson(res, 200, report);
   }
   if (req.method === 'POST' && url.pathname === '/api/parse') {
@@ -148,15 +209,31 @@ function normalizePublicBaseUrl(value) {
   return String(value || '').trim().replace(/\/+$/, '');
 }
 
+function buildPublicExportUrl(format) {
+  const url = new URL(`${publicBaseUrl}/api/export/${encodeURIComponent(format)}`);
+  url.searchParams.set('token', subscriptionToken);
+  return url.toString();
+}
+
 async function loadParsedSources(viewState) {
   const bundles = [];
   for (const source of viewState.sources.filter((item) => item.enabled)) {
-    const content = await loadSourceContent(source);
-    const parsed = parseSubscriptionContent(content, source);
-    bundles.push({
-      source,
-      ...parsed,
-    });
+    try {
+      const content = await loadSourceContent(source);
+      const parsed = parseSubscriptionContent(content, source);
+      bundles.push({
+        source,
+        ...parsed,
+      });
+    } catch (error) {
+      bundles.push({
+        source,
+        format: 'error',
+        nodes: [],
+        warnings: [],
+        errors: [error instanceof Error ? error.message : String(error)],
+      });
+    }
   }
   return bundles;
 }
@@ -165,9 +242,21 @@ async function loadSourceContent(source) {
   if (source.kind === 'text' || !source.url) {
     return source.content || '';
   }
+  let customHeaders = {};
+  if (String(source.headersJson || '').trim()) {
+    try {
+      const parsed = JSON.parse(source.headersJson);
+      if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) throw new Error('expected an object');
+      customHeaders = Object.fromEntries(Object.entries(parsed).map(([key, value]) => [key, String(value)]));
+    } catch (error) {
+      throw new Error(`Invalid headers JSON for source "${source.name || source.id}": ${error.message}`);
+    }
+  }
   const response = await fetch(source.url, {
+    signal: AbortSignal.timeout(15_000),
     headers: {
       'user-agent': 'HomeRelayStudio/0.1',
+      ...customHeaders,
     },
   });
   if (!response.ok) {
@@ -209,8 +298,11 @@ async function readJsonBody(req) {
   return JSON.parse(body);
 }
 
-function sendJson(res, statusCode, value) {
-  res.writeHead(statusCode, { 'content-type': 'application/json; charset=utf-8' });
+function sendJson(res, statusCode, value, headers = {}) {
+  res.writeHead(statusCode, {
+    'content-type': 'application/json; charset=utf-8',
+    ...headers,
+  });
   res.end(JSON.stringify(value, null, 2));
 }
 

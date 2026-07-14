@@ -5,6 +5,7 @@ REPO_URL="${HOME_RELAY_REPO_URL:-https://github.com/himydearfriends1934-cmyk/hom
 INSTALL_DIR="${HOME_RELAY_INSTALL_DIR:-$HOME/.home-relay-studio}"
 CONFIG_FILE="$INSTALL_DIR/.home-relay-studio.json"
 PID_FILE="$INSTALL_DIR/.home-relay-studio.pid"
+CHILD_PID_FILE="$INSTALL_DIR/.home-relay-studio.child.pid"
 LOG_FILE="$INSTALL_DIR/home-relay-studio.log"
 DEFAULT_PORT=8787
 
@@ -83,19 +84,26 @@ configured_port() {
   fi
 }
 
-stop_service() {
-  if [[ -f "$PID_FILE" ]]; then
-    local pid
-    pid="$(cat "$PID_FILE" 2>/dev/null || true)"
-    if [[ "$pid" =~ ^[0-9]+$ ]] && kill -0 "$pid" 2>/dev/null; then
-      kill "$pid" 2>/dev/null || true
-      for _ in {1..20}; do
-        kill -0 "$pid" 2>/dev/null || break
-        sleep 0.2
-      done
+stop_pid_file() {
+  local file="$1" pid
+  [[ -f "$file" ]] || return 0
+  pid="$(cat "$file" 2>/dev/null || true)"
+  if [[ "$pid" =~ ^[0-9]+$ ]] && kill -0 "$pid" 2>/dev/null; then
+    kill "$pid" 2>/dev/null || true
+    for _ in {1..20}; do
+      kill -0 "$pid" 2>/dev/null || break
+      sleep 0.2
+    done
+    if kill -0 "$pid" 2>/dev/null; then
+      kill -KILL "$pid" 2>/dev/null || true
     fi
-    rm -f "$PID_FILE"
   fi
+  rm -f "$file"
+}
+
+stop_service() {
+  stop_pid_file "$PID_FILE"
+  stop_pid_file "$CHILD_PID_FILE"
 }
 
 choose_port() {
@@ -141,15 +149,38 @@ install_or_update() {
   fi
 
   npm --prefix "$INSTALL_DIR" install --omit=dev
-  printf '{\n  "host": "127.0.0.1",\n  "port": %s\n}\n' "$port" > "$CONFIG_FILE"
+  HOME_RELAY_CONFIG_FILE="$CONFIG_FILE" HOME_RELAY_PORT="$port" node <<'NODE'
+const crypto = require('node:crypto');
+const fs = require('node:fs');
+const configPath = process.env.HOME_RELAY_CONFIG_FILE;
+let config = {};
+try {
+  config = JSON.parse(fs.readFileSync(configPath, 'utf8'));
+} catch {}
+if (typeof config.subscriptionToken !== 'string' || config.subscriptionToken.length < 32) {
+  config.subscriptionToken = crypto.randomBytes(32).toString('base64url');
+}
+config.host = '127.0.0.1';
+config.port = Number(process.env.HOME_RELAY_PORT);
+const tempPath = `${configPath}.${process.pid}.tmp`;
+fs.writeFileSync(tempPath, `${JSON.stringify(config, null, 2)}\n`, { mode: 0o600 });
+fs.renameSync(tempPath, configPath);
+try { fs.chmodSync(configPath, 0o600); } catch {}
+NODE
   (
     cd "$INSTALL_DIR"
-    nohup node src/server.js >> "$LOG_FILE" 2>&1 &
+    nohup node src/supervisor.js >> "$LOG_FILE" 2>&1 &
     printf '%s\n' "$!" > "$PID_FILE"
   )
   sleep 1
   if ! kill -0 "$(cat "$PID_FILE")" 2>/dev/null; then
     say "启动失败，请查看日志：$LOG_FILE"
+    return 1
+  fi
+  local child_pid
+  child_pid="$(cat "$CHILD_PID_FILE" 2>/dev/null || true)"
+  if [[ ! "$child_pid" =~ ^[0-9]+$ ]] || ! kill -0 "$child_pid" 2>/dev/null; then
+    say "鍚姩澶辫触锛岃鏌ョ湅鏃ュ織锛?LOG_FILE"
     return 1
   fi
   say ""

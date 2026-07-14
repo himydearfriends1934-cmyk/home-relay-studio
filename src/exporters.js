@@ -26,8 +26,8 @@ export const CLIENT_EXPORTS = [
   {
     id: 'shadowrocket',
     aliases: ['rocket'],
-    filename: 'shadowrocket-subscription.txt',
-    contentType: 'text/plain; charset=utf-8',
+    filename: 'shadowrocket-subscription.yaml',
+    contentType: 'text/yaml; charset=utf-8',
   },
 ];
 
@@ -37,7 +37,7 @@ export function resolveClientExportId(format) {
   return match?.id || '';
 }
 
-export function getClientExport(format, state, parsedSources) {
+export function getClientExport(format, state, parsedSources, options = {}) {
   const id = resolveClientExportId(format);
   if (!id) return null;
   const singBox = generateSingBoxConfig(state, parsedSources);
@@ -47,6 +47,8 @@ export function getClientExport(format, state, parsedSources) {
     return {
       ...meta,
       body: JSON.stringify(singBox.config, null, 2),
+      nodeCount: singBox.counts.nodes,
+      warnings: singBox.assignmentWarnings,
     };
   }
 
@@ -58,19 +60,33 @@ export function getClientExport(format, state, parsedSources) {
         noRefs: true,
         sortKeys: false,
       }),
+      nodeCount: singBox.counts.nodes,
+      warnings: singBox.assignmentWarnings,
     };
   }
 
   if (id === 'shadowrocket') {
+    const config = generateClashConfig(state, singBox.assignments);
+    const proxies = orderShadowrocketProxies(config.proxies || []);
     return {
       ...meta,
-      contentType: 'text/yaml; charset=utf-8',
-      filename: 'shadowrocket-chain.yaml',
-      body: yaml.dump(generateClashConfig(state, singBox.assignments), {
+      body: yaml.dump({ proxies }, {
         lineWidth: -1,
         noRefs: true,
         sortKeys: false,
       }),
+      nodeCount: singBox.counts.nodes,
+      warnings: singBox.assignmentWarnings,
+    };
+  }
+
+  if (singBox.assignments.some((assignment) => assignment.egress.protocol !== 'direct')) {
+    return {
+      ...meta,
+      body: '',
+      nodeCount: 0,
+      warnings: singBox.assignmentWarnings,
+      error: 'V2Ray URI subscriptions cannot carry a chained home-egress route. Use Shadowrocket, Clash, or sing-box.',
     };
   }
 
@@ -78,7 +94,17 @@ export function getClientExport(format, state, parsedSources) {
   return {
     ...meta,
     body: Buffer.from(uriText, 'utf8').toString('base64'),
+    nodeCount: uriText.length,
+    warnings: singBox.assignmentWarnings,
   };
+}
+
+function orderShadowrocketProxies(proxies) {
+  const helperNames = new Set(proxies.map((proxy) => proxy['dialer-proxy']).filter(Boolean));
+  return [
+    ...proxies.filter((proxy) => !helperNames.has(proxy.name)),
+    ...proxies.filter((proxy) => helperNames.has(proxy.name)),
+  ];
 }
 
 export function generateClashConfig(state, assignments) {
@@ -92,7 +118,7 @@ export function generateClashConfig(state, assignments) {
 
   for (const assignment of assignments) {
     const displayName = formatAssignmentName(assignment, state.export?.nameTemplate);
-    const frontTag = makeUniqueName(`front-${assignment.sourceName}-${assignment.node.name}`, usedNames);
+    const frontTag = makeUniqueName(`entry-only-${assignment.sourceName}-${assignment.node.name}`, usedNames);
     proxies.push(buildClashProxy(assignment.node, frontTag));
     let tag = frontTag;
     if (assignment.egress.protocol !== 'direct') {
@@ -209,11 +235,24 @@ export function formatAssignmentName(assignment, template = '{sourceName} via {e
 }
 
 function buildClashProxy(item, name, dialerProxy = '') {
+  if (item.rawClashProxy && typeof item.rawClashProxy === 'object' && !Array.isArray(item.rawClashProxy)) {
+    const proxy = structuredClone(item.rawClashProxy);
+    proxy.name = name;
+    proxy.server = item.server || proxy.server;
+    proxy.port = item.port || proxy.port;
+    if (item.protocol === 'http') proxy.udp = false;
+    else if (typeof proxy.udp !== 'boolean') proxy.udp = true;
+    delete proxy['dialer-proxy'];
+    delete proxy['underlying-proxy'];
+    if (dialerProxy) proxy['dialer-proxy'] = dialerProxy;
+    return compactObject(proxy);
+  }
+
   const common = {
     name,
     server: item.server || undefined,
     port: item.port || undefined,
-    udp: item.protocol !== 'http' ? true : undefined,
+    udp: item.protocol !== 'http',
     'dialer-proxy': dialerProxy || undefined,
   };
 
@@ -241,6 +280,8 @@ function buildClashProxy(item, name, dialerProxy = '') {
         type: 'ss',
         cipher: item.method || undefined,
         password: item.password || undefined,
+        plugin: normalizeClashPlugin(item.plugin) || undefined,
+        'plugin-opts': getClashPluginOptions(item),
       });
     case 'vmess':
       return compactObject({
@@ -251,6 +292,7 @@ function buildClashProxy(item, name, dialerProxy = '') {
         cipher: item.security || 'auto',
         tls: item.tlsEnabled || undefined,
         servername: item.sni || undefined,
+        'client-fingerprint': item.fingerprint || undefined,
         'skip-cert-verify': item.allowInsecure || undefined,
         network: clashNetwork(item.transportType),
         ...clashTransportOptions(item),
@@ -261,9 +303,19 @@ function buildClashProxy(item, name, dialerProxy = '') {
         type: 'vless',
         uuid: item.uuid || undefined,
         flow: item.flow || undefined,
+        'packet-encoding': item.packetEncoding || undefined,
         tls: item.tlsEnabled || undefined,
         servername: item.sni || undefined,
+        'client-fingerprint': item.fingerprint || undefined,
         'skip-cert-verify': item.allowInsecure || undefined,
+        'reality-opts':
+          item.security === 'reality' || item.realityPublicKey
+            ? {
+                'public-key': item.realityPublicKey || undefined,
+                'short-id': item.realityShortId || undefined,
+                'spider-x': item.realitySpiderX || undefined,
+              }
+            : undefined,
         network: clashNetwork(item.transportType),
         ...clashTransportOptions(item),
       });
@@ -308,12 +360,18 @@ function buildClashProxy(item, name, dialerProxy = '') {
 
 function clashNetwork(value) {
   const network = normalizeName(value).toLowerCase();
-  if (network === 'ws' || network === 'grpc' || network === 'http' || network === 'h2') return network;
+  if (network === 'ws' || network === 'grpc' || network === 'http' || network === 'h2' || network === 'xhttp') {
+    return network;
+  }
   return undefined;
 }
 
 function clashTransportOptions(item) {
   const network = clashNetwork(item.transportType);
+  const preserved = item.transportOptions?.[`${network}-opts`];
+  if (preserved && typeof preserved === 'object' && !Array.isArray(preserved)) {
+    return { [`${network}-opts`]: structuredClone(preserved) };
+  }
   if (network === 'ws') {
     return {
       'ws-opts': compactObject({
@@ -329,11 +387,19 @@ function clashTransportOptions(item) {
       }),
     };
   }
-  if (network === 'http' || network === 'h2') {
+  if (network === 'h2') {
     return {
       'h2-opts': compactObject({
-        path: item.path ? [item.path] : undefined,
+        path: item.path || undefined,
         host: item.host ? [item.host] : undefined,
+      }),
+    };
+  }
+  if (network === 'http') {
+    return {
+      'http-opts': compactObject({
+        path: item.path ? [item.path] : undefined,
+        headers: item.host ? { Host: [item.host] } : undefined,
       }),
     };
   }
@@ -401,13 +467,35 @@ function buildAuthProxyUri(scheme, node) {
 function buildShadowsocksUri(node) {
   if (!node.method || !node.password) return '';
   const encoded = base64Url(`${node.method}:${node.password}`);
-  return `ss://${encoded}@${formatHost(node.server)}:${node.port}#${encodeURIComponent(node.name)}`;
+  const pluginSpec = [node.plugin, node.pluginOptions].filter(Boolean).join(';');
+  const query = pluginSpec ? `?plugin=${encodeURIComponent(pluginSpec)}` : '';
+  return `ss://${encoded}@${formatHost(node.server)}:${node.port}${query}#${encodeURIComponent(node.name)}`;
+}
+
+function normalizeClashPlugin(value) {
+  const plugin = normalizeName(value).toLowerCase();
+  return plugin === 'obfs-local' ? 'obfs' : plugin;
+}
+
+function getClashPluginOptions(item) {
+  if (!item.plugin) return undefined;
+  if (item.pluginOpts && typeof item.pluginOpts === 'object' && !Array.isArray(item.pluginOpts)) {
+    return item.pluginOpts;
+  }
+  const options = {};
+  for (const part of String(item.pluginOptions || '').split(';').map((value) => value.trim()).filter(Boolean)) {
+    const separator = part.indexOf('=');
+    if (separator < 0) options[part] = true;
+    else options[part.slice(0, separator)] = part.slice(separator + 1);
+  }
+  return Object.keys(options).length ? options : undefined;
 }
 
 function buildCommonParams(node) {
   const params = new URLSearchParams();
   if (node.protocol === 'vless') params.set('encryption', node.method || 'none');
-  if (node.tlsEnabled) params.set('security', 'tls');
+  if (node.security === 'reality') params.set('security', 'reality');
+  else if (node.tlsEnabled) params.set('security', 'tls');
   if (node.sni) params.set('sni', node.sni);
   if (node.allowInsecure) params.set('allowInsecure', '1');
   if (node.fingerprint) params.set('fp', node.fingerprint);
@@ -417,6 +505,9 @@ function buildCommonParams(node) {
   if (node.serviceName) params.set('serviceName', node.serviceName);
   if (node.alpn) params.set('alpn', splitCsv(node.alpn).join(','));
   if (node.flow) params.set('flow', node.flow);
+  if (node.realityPublicKey) params.set('pbk', node.realityPublicKey);
+  if (node.realityShortId) params.set('sid', node.realityShortId);
+  if (node.realitySpiderX) params.set('spx', node.realitySpiderX);
   return params;
 }
 

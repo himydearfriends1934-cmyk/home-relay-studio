@@ -17,7 +17,27 @@ const SKIP_SING_BOX_TYPES = new Set(['selector', 'urltest', 'direct', 'block', '
 export function parseSubscriptionContent(text, source = {}) {
   const cleaned = trimBom(text);
   const result = parseNestedContent(cleaned, source, 0);
-  return result;
+  const nodes = [];
+  const warnings = [...(result.warnings || [])];
+  for (const node of result.nodes || []) {
+    const reason = invalidNodeReason(node);
+    if (reason) {
+      warnings.push(`Skipped invalid node "${node.name || node.protocol || 'unnamed'}": ${reason}.`);
+    } else {
+      nodes.push(node);
+    }
+  }
+  return { ...result, nodes, warnings };
+}
+
+function invalidNodeReason(node) {
+  if (!node.server) return 'missing server';
+  if (!Number.isInteger(node.port) || node.port < 1 || node.port > 65535) return 'invalid port';
+  if ((node.protocol === 'vmess' || node.protocol === 'vless') && !node.uuid) return 'missing UUID';
+  if ((node.protocol === 'trojan' || node.protocol === 'hysteria2') && !node.password) return 'missing password';
+  if (node.protocol === 'shadowsocks' && (!node.method || !node.password)) return 'missing cipher or password';
+  if (node.protocol === 'tuic' && (!node.uuid || !node.password)) return 'missing UUID or password';
+  return '';
 }
 
 function parseNestedContent(text, source, depth) {
@@ -33,10 +53,14 @@ function parseNestedContent(text, source, depth) {
   const json = safeJsonParse(text);
   if (json !== null) {
     if (isPlainObject(json)) {
-      const singBox = parseSingBoxObject(json, source);
-      if (singBox.nodes.length || singBox.warnings.length) return singBox;
-      const clash = parseClashObject(json, source);
-      if (clash.nodes.length || clash.warnings.length) return clash;
+      if (Array.isArray(json.outbounds)) {
+        const singBox = parseSingBoxObject(json, source);
+        if (singBox.nodes.length || singBox.warnings.length) return singBox;
+      }
+      if (Array.isArray(json.proxies)) {
+        const clash = parseClashObject(json, source);
+        if (clash.nodes.length || clash.warnings.length) return clash;
+      }
     }
     if (Array.isArray(json)) {
       const clash = parseClashObject({ proxies: json }, source);
@@ -102,6 +126,7 @@ function nodeFromSingBoxOutbound(outbound, source) {
   const type = normalizeName(outbound.type || '').toLowerCase();
   const transport = outbound.transport || {};
   const tls = isPlainObject(outbound.tls) ? outbound.tls : {};
+  const reality = isPlainObject(tls.reality) ? tls.reality : {};
   return {
     id: `${source.id || 'source'}-${nodesafe(outbound.tag || outbound.name || type)}`,
     sourceId: source.id || '',
@@ -114,7 +139,13 @@ function nodeFromSingBoxOutbound(outbound, source) {
     password: String(outbound.password ?? ''),
     uuid: normalizeName(outbound.uuid || ''),
     method: normalizeName(outbound.method || ''),
-    security: normalizeName(outbound.security || ''),
+    security: reality.enabled ? 'reality' : normalizeName(outbound.security || ''),
+    alterId: toInt(outbound.alter_id, 0) ?? 0,
+    flow: normalizeName(outbound.flow || ''),
+    packetEncoding: normalizeName(outbound.packet_encoding || ''),
+    plugin: normalizeName(outbound.plugin || ''),
+    pluginOptions: String(outbound.plugin_opts ?? ''),
+    pluginOpts: parsePluginOptions(outbound.plugin_opts),
     tlsEnabled: Boolean(tls.enabled ?? outbound.tls === true),
     allowInsecure: Boolean(tls.insecure),
     sni: normalizeName(tls.server_name || ''),
@@ -130,6 +161,8 @@ function nodeFromSingBoxOutbound(outbound, source) {
     upMbps: toInt(outbound.up_mbps, null),
     downMbps: toInt(outbound.down_mbps, null),
     fingerprint: normalizeName(tls.utls?.fingerprint || outbound.fingerprint || ''),
+    realityPublicKey: normalizeName(reality.public_key || ''),
+    realityShortId: normalizeName(reality.short_id || ''),
     rawSingBoxOutbound: structuredClone(outbound),
     supportsUdp: inferSupportsUdp(type),
     requiresUdp: inferRequiresUdp(type),
@@ -157,12 +190,27 @@ function parseClashObject(obj, source) {
 
 function nodeFromClashProxy(proxy, source) {
   const type = normalizeName(proxy.type || '').toLowerCase();
-  if (!SOURCE_NODE_PROTOCOLS.has(type) && !['socks5'].includes(type)) return null;
-  const transportType = normalizeName(proxy.network || proxy.type || '');
+  const protocol = type === 'socks5' ? 'socks' : type === 'ss' ? 'shadowsocks' : type;
+  if (!SOURCE_NODE_PROTOCOLS.has(protocol)) return null;
+  const transportType = normalizeName(proxy.network || '');
   const wsOpts = proxy['ws-opts'] || {};
+  const httpOpts = proxy['http-opts'] || {};
+  const h2Opts = proxy['h2-opts'] || {};
   const grpcOpts = proxy['grpc-opts'] || {};
+  const realityOpts = proxy['reality-opts'] || {};
   const tls = Boolean(proxy.tls);
-  const protocol = type === 'socks5' ? 'socks' : type;
+  const transportPath =
+    firstText(wsOpts.path) ||
+    firstText(h2Opts.path) ||
+    firstText(httpOpts.path) ||
+    firstText(proxy.path) ||
+    firstText(proxy['ws-path']);
+  const transportHost =
+    firstText(wsOpts.headers?.Host || wsOpts.headers?.host) ||
+    firstText(h2Opts.host) ||
+    firstText(httpOpts.headers?.Host || httpOpts.headers?.host) ||
+    firstText(proxy.host) ||
+    firstText(proxy['ws-headers']?.Host || proxy['ws-headers']?.host);
   return {
     id: `${source.id || 'source'}-${nodesafe(proxy.name || protocol)}`,
     sourceId: source.id || '',
@@ -175,25 +223,20 @@ function nodeFromClashProxy(proxy, source) {
     password: String(proxy.password ?? ''),
     uuid: normalizeName(proxy.uuid || ''),
     method: normalizeName(proxy.cipher || proxy.method || ''),
-    security: normalizeName(proxy.security || ''),
-    tlsEnabled: tls,
+    security: Object.keys(realityOpts).length > 0 ? 'reality' : normalizeName(proxy.security || ''),
+    alterId: toInt(proxy.alterId ?? proxy['alter-id'], 0) ?? 0,
+    flow: normalizeName(proxy.flow || ''),
+    packetEncoding: normalizeName(proxy['packet-encoding'] || ''),
+    plugin: normalizeName(proxy.plugin || ''),
+    pluginOptions: stringifyPluginOptions(proxy['plugin-opts']),
+    pluginOpts: isPlainObject(proxy['plugin-opts']) ? structuredClone(proxy['plugin-opts']) : {},
+    tlsEnabled: tls || ['trojan', 'hysteria2', 'tuic'].includes(protocol),
     allowInsecure: Boolean(proxy['skip-cert-verify'] || proxy.insecure),
     sni: normalizeName(proxy.servername || proxy.sni || ''),
     alpn: Array.isArray(proxy.alpn) ? proxy.alpn.map(normalizeName).filter(Boolean).join(',') : normalizeName(proxy.alpn || ''),
-    transportType:
-      transportType === 'ws'
-        ? 'ws'
-        : transportType === 'grpc'
-        ? 'grpc'
-        : transportType === 'h2'
-        ? 'http'
-        : transportType === 'http'
-        ? 'http'
-        : transportType === 'quic'
-        ? 'quic'
-        : '',
-    path: normalizeName(wsOpts.path || proxy.path || proxy['ws-path'] || ''),
-    host: normalizeName(wsOpts.headers?.Host || proxy.host || proxy['ws-headers']?.Host || ''),
+    transportType,
+    path: normalizeName(transportPath),
+    host: normalizeName(transportHost),
     serviceName: normalizeName(grpcOpts['grpc-service-name'] || proxy['grpc-service-name'] || ''),
     congestionControl: normalizeName(proxy['congestion-control'] || ''),
     udpRelayMode: normalizeName(proxy['udp-relay-mode'] || ''),
@@ -201,7 +244,10 @@ function nodeFromClashProxy(proxy, source) {
     obfsPassword: String(proxy['obfs-password'] ?? ''),
     upMbps: toInt(proxy['up-mbps'], null),
     downMbps: toInt(proxy['down-mbps'], null),
-    fingerprint: normalizeName(proxy.fingerprint || proxy.fp || ''),
+    fingerprint: normalizeName(proxy['client-fingerprint'] || proxy.fingerprint || proxy.fp || ''),
+    realityPublicKey: normalizeName(realityOpts['public-key'] || proxy.pbk || ''),
+    realityShortId: normalizeName(realityOpts['short-id'] || proxy.sid || ''),
+    transportOptions: compactTransportOptions(proxy),
     rawClashProxy: structuredClone(proxy),
     supportsUdp: inferSupportsUdp(protocol),
     requiresUdp: inferRequiresUdp(protocol),
@@ -221,11 +267,16 @@ function parseUriList(text, source) {
     .filter((line) => line && !line.startsWith('#'));
 
   for (const line of lines) {
-    const node = parseUriLine(line, source);
-    if (node) {
-      nodes.push(node);
-    } else if (line.includes('://')) {
-      warnings.push(`Skipped unsupported URI scheme in line: ${line.slice(0, 32)}`);
+    try {
+      const node = parseUriLine(line, source);
+      if (node) {
+        nodes.push(node);
+      } else if (line.includes('://')) {
+        warnings.push(`Skipped unsupported URI scheme in line: ${line.slice(0, 32)}`);
+      }
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      warnings.push(`Skipped malformed proxy URI (${line.slice(0, 20)}…): ${message}`);
     }
   }
 
@@ -267,22 +318,24 @@ function parseVmessUri(line, source) {
   const raw = line.slice(line.indexOf('://') + 3);
   const hashIndex = raw.indexOf('#');
   const withoutHash = hashIndex >= 0 ? raw.slice(0, hashIndex) : raw;
-  const name = hashIndex >= 0 ? decodeURIComponent(raw.slice(hashIndex + 1)) : 'vmess';
+  const hashName = hashIndex >= 0 ? decodeURIComponent(raw.slice(hashIndex + 1)) : '';
   const decoded = decodeLooseBase64(withoutHash) || withoutHash;
   const json = safeJsonParse(decoded);
   if (!json || !isPlainObject(json)) return null;
   const server = normalizeName(json.add || json.server || '');
+  const name = normalizeName(hashName || json.ps || 'vmess');
   return {
     id: `${source.id || 'source'}-${nodesafe(name)}`,
     sourceId: source.id || '',
     sourceName: normalizeName(source.name || ''),
-    name: normalizeName(name || json.ps || 'vmess'),
+    name,
     protocol: 'vmess',
     server,
     port: toInt(json.port, null),
     uuid: normalizeName(json.id || ''),
-    method: normalizeName(json.scy || json.security || ''),
-    security: normalizeName(json.tls || json.security || ''),
+    method: normalizeName(json.scy || json.security || 'auto'),
+    security: normalizeName(json.scy || json.security || 'auto'),
+    alterId: toInt(json.aid ?? json.alterId, 0) ?? 0,
     tlsEnabled: String(json.tls || '').toLowerCase() === 'tls',
     allowInsecure: Boolean(json.allowInsecure),
     sni: normalizeName(json.sni || ''),
@@ -296,7 +349,7 @@ function parseVmessUri(line, source) {
     rawVmess: json,
     supportsUdp: inferSupportsUdp('vmess'),
     requiresUdp: inferRequiresUdp('vmess'),
-    original: { format: 'vmess-uri', name: normalizeName(name || '') },
+    original: { format: 'vmess-uri', name },
   };
 }
 
@@ -320,46 +373,62 @@ function parseTrojanUri(line, source) {
   const url = new URL(line);
   const name = decodeURIComponent(url.hash.slice(1) || 'trojan');
   const params = url.searchParams;
-  return buildUriNode({
+  const node = buildUriNode({
     source,
     protocol: 'trojan',
     name,
     url,
     params,
-    username: url.username,
-    password: url.password,
+    username: '',
+    password: url.username || url.password,
     rawUri: line,
   });
+  // Trojan uses TLS by design; many valid share links omit the redundant security=tls query.
+  node.tlsEnabled = true;
+  return node;
 }
 
 function parseSsUri(line, source) {
-  const url = new URL(line);
-  const name = decodeURIComponent(url.hash.slice(1) || 'ss');
-  const params = url.searchParams;
+  const raw = line.slice(line.indexOf('://') + 3);
+  const hashIndex = raw.indexOf('#');
+  const name = decodeURIComponent(hashIndex >= 0 ? raw.slice(hashIndex + 1) : 'ss');
+  const withoutHash = hashIndex >= 0 ? raw.slice(0, hashIndex) : raw;
+  const queryIndex = withoutHash.indexOf('?');
+  const authority = queryIndex >= 0 ? withoutHash.slice(0, queryIndex) : withoutHash;
+  const query = queryIndex >= 0 ? withoutHash.slice(queryIndex + 1) : '';
+  const params = new URLSearchParams(query);
   let method = '';
   let password = '';
-  let username = decodeURIComponent(url.username || '');
-  let host = url.hostname;
-  let port = toInt(url.port, null);
+  let host = '';
+  let port = null;
+  const decodedLegacy = !authority.includes('@') ? decodeLooseBase64(authority) : '';
 
-  if (username.includes(':')) {
-    [method, password] = username.split(/:(.+)/);
+  if (decodedLegacy && decodedLegacy.includes('@')) {
+    const at = decodedLegacy.lastIndexOf('@');
+    const credentials = decodedLegacy.slice(0, at);
+    const endpoint = splitHostPort(decodedLegacy.slice(at + 1));
+    [method, password] = credentials.split(/:(.+)/);
+    host = endpoint.host;
+    port = endpoint.port;
   } else {
-    const decoded = decodeLooseBase64(username);
-    if (decoded && decoded.includes(':')) {
-      [method, password] = decoded.split(/:(.+)/);
-    } else if (url.password) {
-      method = username;
-      password = decodeURIComponent(url.password);
+    const url = new URL(line);
+    const username = decodeURIComponent(url.username || '');
+    host = url.hostname;
+    port = toInt(url.port, null);
+    if (username.includes(':')) {
+      [method, password] = username.split(/:(.+)/);
     } else {
-      const colon = decoded?.indexOf(':') ?? -1;
-      if (colon >= 0) {
-        method = decoded.slice(0, colon);
-        password = decoded.slice(colon + 1);
+      const decoded = decodeLooseBase64(username);
+      if (decoded && decoded.includes(':')) {
+        [method, password] = decoded.split(/:(.+)/);
+      } else if (url.password) {
+        method = username;
+        password = decodeURIComponent(url.password);
       }
     }
   }
 
+  const pluginSpec = parsePluginSpec(params.get('plugin') || '');
   return {
     id: `${source.id || 'source'}-${nodesafe(name)}`,
     sourceId: source.id || '',
@@ -371,6 +440,9 @@ function parseSsUri(line, source) {
     username: '',
     password: password || '',
     method: normalizeName(method || ''),
+    plugin: pluginSpec.plugin,
+    pluginOptions: pluginSpec.pluginOptions,
+    pluginOpts: pluginSpec.pluginOpts,
     tlsEnabled: false,
     allowInsecure: false,
     sni: '',
@@ -381,8 +453,8 @@ function parseSsUri(line, source) {
     serviceName: '',
     rawUri: line,
     rawSs: {
-      plugin: normalizeName(params.get('plugin') || ''),
-      pluginOpts: normalizeName(params.get('plugin-opts') || ''),
+      plugin: pluginSpec.plugin,
+      pluginOptions: pluginSpec.pluginOptions,
     },
     supportsUdp: inferSupportsUdp('shadowsocks'),
     requiresUdp: inferRequiresUdp('shadowsocks'),
@@ -390,10 +462,49 @@ function parseSsUri(line, source) {
   };
 }
 
+function firstText(value) {
+  if (Array.isArray(value)) return normalizeName(value.find((item) => normalizeName(item)) || '');
+  return normalizeName(value || '');
+}
+
+function compactTransportOptions(proxy) {
+  const result = {};
+  for (const key of ['ws-opts', 'http-opts', 'h2-opts', 'grpc-opts', 'xhttp-opts']) {
+    if (isPlainObject(proxy[key])) result[key] = structuredClone(proxy[key]);
+  }
+  return result;
+}
+
+function parsePluginSpec(value) {
+  const parts = String(value ?? '').split(';').map((part) => part.trim()).filter(Boolean);
+  const plugin = normalizeName(parts.shift() || '');
+  const pluginOptions = parts.join(';');
+  return { plugin, pluginOptions, pluginOpts: parsePluginOptions(pluginOptions) };
+}
+
+function parsePluginOptions(value) {
+  if (isPlainObject(value)) return structuredClone(value);
+  const options = {};
+  for (const part of String(value ?? '').split(';').map((item) => item.trim()).filter(Boolean)) {
+    const separator = part.indexOf('=');
+    if (separator < 0) options[part] = true;
+    else options[part.slice(0, separator)] = part.slice(separator + 1);
+  }
+  return options;
+}
+
+function stringifyPluginOptions(value) {
+  if (!isPlainObject(value)) return String(value ?? '');
+  return Object.entries(value)
+    .filter(([, option]) => option !== undefined && option !== null && option !== false && option !== '')
+    .map(([key, option]) => (option === true ? key : `${key}=${option}`))
+    .join(';');
+}
+
 function parseSocksUri(line, source) {
   const url = new URL(line);
   const name = decodeURIComponent(url.hash.slice(1) || 'socks');
-  return buildUriNode({
+  const node = buildUriNode({
     source,
     protocol: 'socks',
     name,
@@ -403,12 +514,14 @@ function parseSocksUri(line, source) {
     password: url.password,
     rawUri: line,
   });
+  if (!node.port) node.port = 1080;
+  return node;
 }
 
 function parseHttpUri(line, source) {
   const url = new URL(line);
   const name = decodeURIComponent(url.hash.slice(1) || 'http');
-  return buildUriNode({
+  const node = buildUriNode({
     source,
     protocol: 'http',
     name,
@@ -418,6 +531,9 @@ function parseHttpUri(line, source) {
     password: url.password,
     rawUri: line,
   });
+  if (url.protocol === 'https:') node.tlsEnabled = true;
+  if (!node.port) node.port = url.protocol === 'https:' ? 443 : 80;
+  return node;
 }
 
 function parseHysteria2Uri(line, source) {
@@ -501,7 +617,7 @@ function buildUriNode({ source, protocol, name, url, params, username, password,
     protocol,
     server: host,
     port: toInt(url.port, null),
-    username: normalizeName(username || ''),
+    username: normalizeName(decodeURIComponent(username || '')),
     password: decodeURIComponent(password || ''),
     uuid: normalizeName(username || ''),
     method: normalizeName(params.get('encryption') || params.get('cipher') || ''),
@@ -525,6 +641,9 @@ function buildUriNode({ source, protocol, name, url, params, username, password,
     fingerprint: normalizeName(params.get('fp') || params.get('fingerprint') || ''),
     flow: normalizeName(params.get('flow') || ''),
     packetEncoding: normalizeName(params.get('packet-encoding') || ''),
+    realityPublicKey: normalizeName(params.get('pbk') || params.get('public-key') || ''),
+    realityShortId: normalizeName(params.get('sid') || params.get('short-id') || ''),
+    realitySpiderX: normalizeName(params.get('spx') || ''),
     rawUri,
     supportsUdp: inferSupportsUdp(protocol),
     requiresUdp: inferRequiresUdp(protocol),

@@ -8,7 +8,7 @@ export function createDefaultState() {
     egresses: [],
     rules: [],
     export: {
-      nameTemplate: '{sourceName} via {egressName}',
+      nameTemplate: '{nodeName} via {egressName}',
       includeSelectors: true,
       includeUrlTest: true,
       includeInbound: true,
@@ -37,7 +37,10 @@ export function normalizeState(input) {
     ...createDefaultState().export,
     ...(state.export ?? {}),
   };
-  state.export.nameTemplate = normalizeName(state.export.nameTemplate) || '{sourceName} via {egressName}';
+  state.export.nameTemplate = normalizeName(state.export.nameTemplate) || '{nodeName} via {egressName}';
+  if (state.export.nameTemplate === '{sourceName} via {egressName}') {
+    state.export.nameTemplate = '{nodeName} via {egressName}';
+  }
   state.export.includeSelectors = Boolean(state.export.includeSelectors);
   state.export.includeUrlTest = Boolean(state.export.includeUrlTest);
   state.export.includeInbound = Boolean(state.export.includeInbound);
@@ -90,7 +93,16 @@ export function normalizeEgress(egress, index = 0) {
   item.password = String(item.password ?? '');
   item.uuid = normalizeName(item.uuid || '');
   item.method = normalizeName(item.method || '');
-  item.tlsEnabled = Boolean(item.tlsEnabled);
+  item.plugin = normalizeName(item.plugin || '');
+  item.pluginOptions = String(item.pluginOptions ?? '');
+  item.security = normalizeName(item.security || '');
+  item.alterId = toInt(item.alterId, 0) ?? 0;
+  item.flow = normalizeName(item.flow || '');
+  item.packetEncoding = normalizeName(item.packetEncoding || '');
+  item.tlsEnabled =
+    ['trojan', 'hysteria2', 'tuic'].includes(item.protocol) || ['tls', 'reality'].includes(item.security)
+      ? true
+      : Boolean(item.tlsEnabled);
   item.sni = normalizeName(item.sni || '');
   item.allowInsecure = Boolean(item.allowInsecure);
   item.network = normalizeName(item.network || '');
@@ -100,6 +112,9 @@ export function normalizeEgress(egress, index = 0) {
   item.serviceName = normalizeName(item.serviceName || '');
   item.alpn = normalizeName(item.alpn || '');
   item.fingerprint = normalizeName(item.fingerprint || '');
+  item.realityPublicKey = normalizeName(item.realityPublicKey || '');
+  item.realityShortId = normalizeName(item.realityShortId || '');
+  item.realitySpiderX = normalizeName(item.realitySpiderX || '');
   item.congestionControl = normalizeName(item.congestionControl || '');
   item.udpRelayMode = normalizeName(item.udpRelayMode || '');
   item.obfs = normalizeName(item.obfs || '');

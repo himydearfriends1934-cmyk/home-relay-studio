@@ -102,6 +102,8 @@ export function generateSingBoxConfig(state, parsedSources) {
         default: sourceSelectorTags[0],
       });
     }
+  } else if (assignments.length > 0) {
+    finalTag = assignments[0].tag;
   }
 
   outbounds.push({ type: 'direct', tag: 'direct' });
@@ -196,6 +198,8 @@ function buildEgressOutbound(egress, tag) {
         server_port: egress.port,
         method: egress.method || undefined,
         password: egress.password || undefined,
+        plugin: normalizeSingBoxPlugin(egress.plugin) || undefined,
+        plugin_opts: egress.pluginOptions || undefined,
       };
     case 'vmess':
       return {
@@ -205,6 +209,7 @@ function buildEgressOutbound(egress, tag) {
         server_port: egress.port,
         uuid: egress.uuid || undefined,
         security: egress.security || 'auto',
+        alter_id: egress.alterId ?? 0,
         tls: buildTlsConfig(egress),
         transport: buildTransportConfig(egress),
       };
@@ -297,10 +302,13 @@ function buildProxyOutbound(node, tag, detourTag) {
     case 'shadowsocks':
       outbound.method = node.method || undefined;
       outbound.password = node.password || undefined;
+      outbound.plugin = normalizeSingBoxPlugin(node.plugin) || undefined;
+      outbound.plugin_opts = node.pluginOptions || undefined;
       break;
     case 'vmess':
       outbound.uuid = node.uuid || undefined;
       outbound.security = node.security || 'auto';
+      outbound.alter_id = node.alterId ?? 0;
       outbound.tls = buildTlsConfig(node);
       outbound.transport = buildTransportConfig(node);
       break;
@@ -340,7 +348,8 @@ function buildProxyOutbound(node, tag, detourTag) {
 }
 
 function buildTlsConfig(item) {
-  if (!item.tlsEnabled && !item.allowInsecure && !item.sni && !item.fingerprint) {
+  const realityEnabled = item.security === 'reality' || Boolean(item.realityPublicKey);
+  if (!item.tlsEnabled && !realityEnabled && !item.allowInsecure && !item.sni && !item.fingerprint) {
     return undefined;
   }
   const tls = {
@@ -350,12 +359,24 @@ function buildTlsConfig(item) {
   if (item.allowInsecure) tls.insecure = true;
   if (item.alpn) tls.alpn = splitCsv(item.alpn);
   if (item.fingerprint) tls.utls = { enabled: true, fingerprint: item.fingerprint };
+  if (realityEnabled) {
+    tls.reality = {
+      enabled: true,
+      public_key: item.realityPublicKey || undefined,
+      short_id: item.realityShortId || undefined,
+    };
+  }
   return tls;
+}
+
+function normalizeSingBoxPlugin(value) {
+  const plugin = normalizeName(value).toLowerCase();
+  return plugin === 'obfs' ? 'obfs-local' : plugin;
 }
 
 function buildTransportConfig(item) {
   const type = normalizeName(item.transportType || '').toLowerCase();
-  if (!type) return undefined;
+  if (!type || type === 'tcp') return undefined;
   switch (type) {
     case 'ws':
       return {
@@ -372,7 +393,13 @@ function buildTransportConfig(item) {
       return {
         type: 'http',
         path: item.path || '/',
-        headers: item.host ? { Host: item.host } : undefined,
+        host: item.host ? [item.host] : undefined,
+      };
+    case 'h2':
+      return {
+        type: 'http',
+        path: item.path || '/',
+        host: item.host ? [item.host] : undefined,
       };
     case 'quic':
       return {
