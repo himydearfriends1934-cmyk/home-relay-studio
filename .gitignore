@@ -3,5 +3,6 @@ data/
 work/
 outputs/
 .upgrade-revision
+.home-relay-studio.json
 .DS_Store
 *.log

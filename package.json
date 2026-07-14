@@ -4,6 +4,8 @@
   "private": true,
   "type": "module",
   "scripts": {
+    "install:app": "node scripts/install.js",
+    "uninstall:app": "node scripts/uninstall.js",
     "start": "node src/server.js",
     "dev": "node --watch src/server.js",
     "test": "node --test"

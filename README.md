@@ -10,7 +10,45 @@
 - 生成 sing-box 可用的链式代理配置
 - 做端口、UDP、规则和链路一致性检测
 
-## 运行
+## 一键安装（推荐）
+
+安装程序会在安装依赖前依次检查：
+
+- Node.js（要求 18 或更高版本）和 npm
+- 项目目录是否可写
+- 服务端口是否可用
+
+Windows 用户可以双击 `install.cmd`，也可以在 PowerShell 中运行：
+
+```powershell
+.\install.cmd
+```
+
+Linux / macOS：
+
+```bash
+./install.sh
+```
+
+默认使用 `8787` 端口。如果端口已被占用，安装程序会寻找下一个可用端口，并提示是否替换。确认后，所选端口会保存到 `.home-relay-studio.json`。
+
+安装结束后运行 `npm start`，然后打开安装程序显示的地址。
+
+无人值守安装可指定端口，并允许自动替换被占用的端口：
+
+```bash
+node scripts/install.js --port 8787 --replace-port --yes
+```
+
+## 一键删除
+
+Windows 用户双击 `uninstall.cmd`，Linux / macOS 运行 `./uninstall.sh`。删除程序会移除依赖和本地安装配置，默认保留 `data` 中的业务数据；如需连数据一起删除：
+
+```bash
+node scripts/uninstall.js --remove-data --yes
+```
+
+## 手动运行
 
 ```bash
 npm install

@@ -15,6 +15,7 @@ import { getUpgradeStatus, runUpgrade, scheduleUpgradeRestart } from './upgrader
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const projectRoot = path.resolve(__dirname, '..');
 const publicDir = path.join(projectRoot, 'public');
+const installConfig = await loadInstallConfig();
 
 const state = await loadState();
 
@@ -27,11 +28,20 @@ const server = http.createServer(async (req, res) => {
   }
 });
 
-const port = Number.parseInt(process.env.PORT || String(DEFAULT_LISTEN_PORT), 10) || DEFAULT_LISTEN_PORT;
-const host = process.env.HOST || '127.0.0.1';
+const port = Number.parseInt(process.env.PORT || String(installConfig.port || DEFAULT_LISTEN_PORT), 10) || DEFAULT_LISTEN_PORT;
+const host = process.env.HOST || installConfig.host || '127.0.0.1';
 server.listen(port, host, () => {
   console.log(`Home Relay Studio running at http://${host}:${port}`);
 });
+
+async function loadInstallConfig() {
+  try {
+    const content = await fs.readFile(path.join(projectRoot, '.home-relay-studio.json'), 'utf8');
+    return JSON.parse(content);
+  } catch {
+    return {};
+  }
+}
 
 async function routeRequest(req, res) {
   const url = new URL(req.url, 'http://127.0.0.1');
