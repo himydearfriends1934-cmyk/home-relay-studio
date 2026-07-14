@@ -217,3 +217,37 @@ test('fails closed when an explicit rule targets a disabled egress', () => {
   assert.equal(result.assignments.length, 0);
   assert.ok(result.assignmentWarnings.some((warning) => warning.type === 'unassigned-node'));
 });
+
+test('source-scoped protocol rules block default fallback for unselected protocols', () => {
+  const state = normalizeState({
+    sources: [{ id: 'src-1', name: 'Mixed source', kind: 'text', enabled: true }],
+    egresses: [{ id: 'eg-1', name: 'France', protocol: 'socks', server: 'fr.example.com', port: 1080, enabled: true }],
+    rules: [
+      {
+        id: 'rule-vless',
+        name: 'Only VLESS',
+        enabled: true,
+        priority: 100,
+        targetMode: 'replace',
+        stop: true,
+        match: { sourceIds: ['src-1'], protocols: ['vless'] },
+        targets: ['eg-1'],
+      },
+    ],
+  });
+  const result = generateSingBoxConfig(state, [
+    {
+      source: state.sources[0],
+      nodes: [
+        { name: 'vless-node', protocol: 'vless', server: 'front.example.com', port: 443, uuid: '11111111-1111-1111-1111-111111111111' },
+        { name: 'trojan-node', protocol: 'trojan', server: 'front.example.com', port: 443, password: 'secret' },
+      ],
+      warnings: [],
+      errors: [],
+    },
+  ]);
+
+  assert.equal(result.assignments.length, 1);
+  assert.equal(result.assignments[0].node.protocol, 'vless');
+  assert.ok(result.assignmentWarnings.some((warning) => warning.nodeName === 'trojan-node'));
+});

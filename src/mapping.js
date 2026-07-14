@@ -90,6 +90,7 @@ function invalidEgressReason(egress) {
 export function resolveNodeTargets(node, source, rules, defaultEgressId, egressById) {
   let targets = [];
   let matchedExplicitTargets = false;
+  const sourceHasScopedTargetRule = rules.some((rule) => ruleTargetsSource(rule, source));
   for (const rule of rules) {
     if (!ruleMatchesNode(rule, node, source)) continue;
     if (rule.targets.length > 0) matchedExplicitTargets = true;
@@ -102,10 +103,22 @@ export function resolveNodeTargets(node, source, rules, defaultEgressId, egressB
   }
 
   targets = uniqueBy(targets.filter((id) => egressById.has(id)), (id) => id);
-  if (targets.length === 0 && !matchedExplicitTargets && defaultEgressId && egressById.has(defaultEgressId)) {
+  if (
+    targets.length === 0 &&
+    !matchedExplicitTargets &&
+    !sourceHasScopedTargetRule &&
+    defaultEgressId &&
+    egressById.has(defaultEgressId)
+  ) {
     targets = [defaultEgressId];
   }
   return targets;
+}
+
+function ruleTargetsSource(rule, source) {
+  if (!rule.enabled || !Array.isArray(rule.targets) || rule.targets.length === 0) return false;
+  const sourceIds = Array.isArray(rule.match?.sourceIds) ? rule.match.sourceIds : [];
+  return sourceIds.length === 0 || sourceIds.includes(source.id);
 }
 
 export function ruleMatchesNode(rule, node, source) {

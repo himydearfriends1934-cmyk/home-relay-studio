@@ -485,6 +485,7 @@ function renderRule(rule, index) {
           ${textField(`rules.${index}.name`, '名称', rule.name)}
           ${checkboxField(`rules.${index}.enabled`, '启用', rule.enabled)}
           ${pickerField(`rules.${index}.match.sourceIds`, '来源', sourceOptions, rule.match?.sourceIds || [], 'wide')}
+          ${pickerField(`rules.${index}.match.protocols`, '协议筛选（空为全部）', PROTOCOL_OPTIONS, rule.match?.protocols || [], 'wide')}
           ${pickerField(`rules.${index}.targets`, '目标出口', egressOptions, rule.targets || [], 'wide')}
         </div>
         <details class="advanced" data-details-key="rule:${escapeHtml(rule.id)}:advanced" ${detailsOpen(`rule:${rule.id}:advanced`)}>
@@ -493,7 +494,6 @@ function renderRule(rule, index) {
             ${numberField(`rules.${index}.priority`, '优先级', rule.priority)}
             ${selectField(`rules.${index}.targetMode`, '目标模式', TARGET_MODE_OPTIONS, rule.targetMode)}
             ${checkboxField(`rules.${index}.stop`, '匹配后停止', rule.stop)}
-            ${pickerField(`rules.${index}.match.protocols`, '协议筛选（空为全部）', PROTOCOL_OPTIONS, rule.match?.protocols || [], 'wide')}
             ${textField(`rules.${index}.match.sourceNameRegex`, '来源名称正则', rule.match?.sourceNameRegex || '', 'wide')}
             ${textField(`rules.${index}.match.nodeNameRegex`, '节点名称正则', rule.match?.nodeNameRegex || '', 'wide')}
             ${textField(`rules.${index}.notes`, '备注', rule.notes, 'wide')}
