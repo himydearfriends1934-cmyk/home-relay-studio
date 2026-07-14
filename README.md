@@ -83,3 +83,23 @@ npm start
 - `generate`：导出 sing-box 链式配置
 - `diagnose`：做结构和连通性检查
 
+## Public subscription-only endpoint
+
+Keep the admin UI on a private address such as Tailscale. If a mobile client
+cannot reach that private address, configure a separate public subscription
+endpoint instead of exposing the whole admin UI.
+
+Add these fields to `.home-relay-studio.json` or set matching environment
+variables before starting the server:
+
+```json
+{
+  "publicBaseUrl": "http://PUBLIC_IP:8790",
+  "publicSubscriptionHost": "0.0.0.0",
+  "publicSubscriptionPort": 8790
+}
+```
+
+The public listener only serves `GET /api/export/*` and still requires the
+subscription token. It does not expose `/api/state`, `/api/runtime`, or the admin
+UI.

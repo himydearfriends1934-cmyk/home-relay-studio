@@ -23,7 +23,9 @@ const projectRoot = path.resolve(__dirname, '..');
 const publicDir = path.join(projectRoot, 'public');
 const installConfig = await loadInstallConfig();
 const subscriptionToken = await resolveSubscriptionToken(installConfig);
-const publicBaseUrl = normalizePublicBaseUrl(process.env.PUBLIC_BASE_URL || '');
+const publicBaseUrl = normalizePublicBaseUrl(
+  process.env.PUBLIC_BASE_URL || installConfig.publicBaseUrl || installConfig.publicSubscriptionBaseUrl || '',
+);
 
 const state = await loadState();
 
@@ -41,6 +43,24 @@ const host = process.env.HOST || installConfig.host || '127.0.0.1';
 server.listen(port, host, () => {
   console.log(`Home Relay Studio running at http://${host}:${port}`);
 });
+
+const publicSubscriptionPort = parseOptionalPort(
+  process.env.PUBLIC_SUBSCRIPTION_PORT || installConfig.publicSubscriptionPort || '',
+);
+const publicSubscriptionHost = process.env.PUBLIC_SUBSCRIPTION_HOST || installConfig.publicSubscriptionHost || '0.0.0.0';
+if (publicSubscriptionPort) {
+  const publicSubscriptionServer = http.createServer(async (req, res) => {
+    try {
+      await routePublicSubscriptionRequest(req, res);
+    } catch (error) {
+      res.writeHead(500, { 'content-type': 'application/json; charset=utf-8' });
+      res.end(JSON.stringify({ error: error instanceof Error ? error.message : String(error) }));
+    }
+  });
+  publicSubscriptionServer.listen(publicSubscriptionPort, publicSubscriptionHost, () => {
+    console.log(`Home Relay Studio public subscription export running at http://${publicSubscriptionHost}:${publicSubscriptionPort}`);
+  });
+}
 
 async function loadInstallConfig() {
   try {
@@ -134,41 +154,7 @@ async function routeRequest(req, res) {
     });
   }
   if (req.method === 'GET' && url.pathname.startsWith('/api/export/')) {
-    if (!subscriptionTokenMatches(subscriptionToken, url.searchParams.get('token') || '')) {
-      return sendText(res, 403, 'Invalid or missing subscription token.');
-    }
-    const format = url.pathname.slice('/api/export/'.length);
-    const viewState = normalizeState(state);
-    const parsedSources = await loadParsedSources(viewState);
-    const exportUrl = publicBaseUrl ? buildPublicExportUrl(format) : '';
-    const output = getClientExport(format, viewState, parsedSources, { exportUrl });
-    if (!output) {
-      return sendText(res, 404, 'Unknown export format');
-    }
-    if (output.error) {
-      return sendText(res, 422, output.error);
-    }
-    if (!output.nodeCount) {
-      const failedSource = parsedSources.find((bundle) => bundle.errors?.length);
-      const detail = failedSource
-        ? ` Source "${failedSource.source.name}": ${failedSource.errors[0]}`
-        : '';
-      return sendText(res, 422, `No usable nodes were generated. Check the source preview, enabled egress, and rule targets.${detail}`);
-    }
-    const headers = {
-      'content-type': output.contentType,
-      'cache-control': 'no-store',
-      'x-relay-node-count': String(output.nodeCount),
-    };
-    if (output.id === 'shadowrocket') {
-      headers['content-disposition'] = `inline; filename="${output.filename}"`;
-    }
-    if (url.searchParams.get('download') === '1') {
-      headers['content-disposition'] = `attachment; filename="${output.filename}"`;
-    }
-    res.writeHead(200, headers);
-    res.end(output.body);
-    return;
+    return handleExportRequest(url, res);
   }
   if (req.method === 'GET' && url.pathname === '/api/qr') {
     const text = url.searchParams.get('text') || '';
@@ -207,6 +193,56 @@ async function routeRequest(req, res) {
 
 function normalizePublicBaseUrl(value) {
   return String(value || '').trim().replace(/\/+$/, '');
+}
+
+function parseOptionalPort(value) {
+  const port = Number.parseInt(String(value || ''), 10);
+  return Number.isInteger(port) && port > 0 && port <= 65535 ? port : 0;
+}
+
+async function routePublicSubscriptionRequest(req, res) {
+  const url = new URL(req.url, 'http://127.0.0.1');
+  if (req.method === 'GET' && url.pathname.startsWith('/api/export/')) {
+    return handleExportRequest(url, res);
+  }
+  return sendText(res, 404, 'Not found');
+}
+
+async function handleExportRequest(url, res) {
+  if (!subscriptionTokenMatches(subscriptionToken, url.searchParams.get('token') || '')) {
+    return sendText(res, 403, 'Invalid or missing subscription token.');
+  }
+  const format = url.pathname.slice('/api/export/'.length);
+  const viewState = normalizeState(state);
+  const parsedSources = await loadParsedSources(viewState);
+  const exportUrl = publicBaseUrl ? buildPublicExportUrl(format) : '';
+  const output = getClientExport(format, viewState, parsedSources, { exportUrl });
+  if (!output) {
+    return sendText(res, 404, 'Unknown export format');
+  }
+  if (output.error) {
+    return sendText(res, 422, output.error);
+  }
+  if (!output.nodeCount) {
+    const failedSource = parsedSources.find((bundle) => bundle.errors?.length);
+    const detail = failedSource
+      ? ` Source "${failedSource.source.name}": ${failedSource.errors[0]}`
+      : '';
+    return sendText(res, 422, `No usable nodes were generated. Check the source preview, enabled egress, and rule targets.${detail}`);
+  }
+  const headers = {
+    'content-type': output.contentType,
+    'cache-control': 'no-store',
+    'x-relay-node-count': String(output.nodeCount),
+  };
+  if (output.id === 'shadowrocket') {
+    headers['content-disposition'] = `inline; filename="${output.filename}"`;
+  }
+  if (url.searchParams.get('download') === '1') {
+    headers['content-disposition'] = `attachment; filename="${output.filename}"`;
+  }
+  res.writeHead(200, headers);
+  res.end(output.body);
 }
 
 function buildPublicExportUrl(format) {
