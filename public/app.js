@@ -4,6 +4,7 @@ const PROTOCOL_OPTIONS = ['http', 'socks', 'shadowsocks', 'vmess', 'vless', 'tro
 const SOURCE_KIND_OPTIONS = ['url', 'text'];
 const FORMAT_OPTIONS = ['auto', 'sing-box', 'clash', 'uri', 'json', 'yaml'];
 const TARGET_MODE_OPTIONS = ['append', 'replace'];
+const ROUTE_COLORS = ['#0f766e', '#b45309', '#2563eb', '#be123c', '#7c3aed', '#15803d', '#c2410c', '#0369a1'];
 const EXPORT_FORMATS = [
   { id: 'shadowrocket', label: 'Shadowrocket' },
   { id: 'sing-box', label: 'Sing-box' },
@@ -84,6 +85,8 @@ function renderShell() {
 
       <section class="upgrade-strip is-hidden" id="upgrade-panel"></section>
 
+      <section class="route-set-panel" id="route-set-panel"></section>
+
       <div class="config-grid">
         <section class="band config-section" data-collection="sources">
           <div class="section-head">
@@ -139,11 +142,111 @@ function renderShell() {
 }
 
 function renderEditors() {
+  renderRouteSetPanel();
   renderCollection('sources');
   renderCollection('egresses');
   renderCollection('rules');
   root.querySelector('#export-grid').innerHTML = renderExportGrid();
   updateCounts();
+}
+
+function renderRouteSetPanel() {
+  const panel = root.querySelector('#route-set-panel');
+  if (!panel) return;
+  const sets = getRouteSets();
+  const cards = sets.map((set) => {
+    const active =
+      (set.sourceIds[0] && ui.activeItems.sources === set.sourceIds[0]) ||
+      (set.egressIds[0] && ui.activeItems.egresses === set.egressIds[0]) ||
+      (set.ruleId && ui.activeItems.rules === set.ruleId);
+    const sourceNames = set.sourceIds
+      .map((id) => state.sources.find((item) => item.id === id)?.name || id)
+      .join(', ') || 'Any source';
+    const egressNames = set.egressIds
+      .map((id) => state.egresses.find((item) => item.id === id)?.name || id)
+      .join(', ') || 'No egress';
+    const status = set.enabled ? 'running' : 'saved';
+    return `
+      <button
+        type="button"
+        class="route-set-card ${active ? 'active' : ''} ${set.enabled ? '' : 'is-off'}"
+        data-route-set="${set.index}"
+        style="--route-color:${escapeHtml(set.color)}"
+      >
+        <span class="route-set-index">${set.index + 1}</span>
+        <span class="route-set-main">
+          <strong>${escapeHtml(set.title)}</strong>
+          <span>${escapeHtml(sourceNames)} -> ${escapeHtml(egressNames)}</span>
+        </span>
+        <span class="route-set-status">${escapeHtml(status)}</span>
+      </button>
+    `;
+  }).join('');
+  panel.innerHTML = `
+    <div class="route-set-head">
+      <div>
+        <h2>Route Sets</h2>
+        <div class="meta">Saved and running source / egress / rule bundles</div>
+      </div>
+      <div class="route-set-count">${sets.length}</div>
+    </div>
+    <div class="route-set-list">
+      ${cards || '<div class="muted">No saved route sets yet. Add a source, egress, and rule to create one.</div>'}
+    </div>
+  `;
+}
+
+function getRouteSets() {
+  const sources = state.sources || [];
+  const egresses = state.egresses || [];
+  const rules = state.rules || [];
+  if (rules.length > 0) {
+    return rules.map((rule, index) => {
+      const sourceIds = rule.match?.sourceIds?.length
+        ? rule.match.sourceIds.filter((id) => sources.some((source) => source.id === id))
+        : sources.filter((source) => source.enabled).map((source) => source.id);
+      const egressIds = (rule.targets || []).filter((id) => egresses.some((egress) => egress.id === id));
+      return {
+        index,
+        color: ROUTE_COLORS[index % ROUTE_COLORS.length],
+        title: rule.name || `Route ${index + 1}`,
+        enabled: rule.enabled,
+        ruleId: rule.id,
+        sourceIds,
+        egressIds,
+      };
+    });
+  }
+  const count = Math.max(sources.length, egresses.length);
+  return Array.from({ length: count }, (_, index) => ({
+    index,
+    color: ROUTE_COLORS[index % ROUTE_COLORS.length],
+    title: `Route ${index + 1}`,
+    enabled: Boolean(sources[index]?.enabled && egresses[index]?.enabled),
+    ruleId: '',
+    sourceIds: sources[index] ? [sources[index].id] : [],
+    egressIds: egresses[index] ? [egresses[index].id] : [],
+  }));
+}
+
+function getEntityRouteMeta(collection, item) {
+  const sets = getRouteSets();
+  const match = sets.find((set) => {
+    if (collection === 'sources') return set.sourceIds.includes(item.id);
+    if (collection === 'egresses') return set.egressIds.includes(item.id);
+    if (collection === 'rules') return set.ruleId === item.id;
+    return false;
+  });
+  return match || null;
+}
+
+function selectRouteSet(index) {
+  const set = getRouteSets().find((item) => item.index === index);
+  if (!set) return;
+  if (set.sourceIds[0]) ui.activeItems.sources = set.sourceIds[0];
+  if (set.egressIds[0]) ui.activeItems.egresses = set.egressIds[0];
+  if (set.ruleId) ui.activeItems.rules = set.ruleId;
+  renderEditors();
 }
 
 function renderCollection(collection) {
@@ -198,16 +301,19 @@ function renderEntityCards(collection, label, items, selectedId, summarizeItem) 
   return `
     <div class="entity-card-row" role="tablist" aria-label="${escapeHtml(label)} selector">
       ${items
-        .map((item) => {
+        .map((item, index) => {
           const selected = item.id === selectedId;
           const status = item.enabled ? 'on' : 'off';
           const name = item.name || item.id;
           const tooltip = `${name} | ${summarizeItem(item)}`;
+          const routeMeta = getEntityRouteMeta(collection, item);
+          const routeIndex = routeMeta ? routeMeta.index + 1 : index + 1;
           return `
             <div
-              class="entity-card ${selected ? 'active' : ''} ${item.enabled ? '' : 'is-off'}"
+              class="entity-card has-route-color ${selected ? 'active' : ''} ${item.enabled ? '' : 'is-off'}"
               data-collection="${escapeHtml(collection)}"
               data-entity-id="${escapeHtml(item.id)}"
+              style="--route-color:${escapeHtml(routeMeta?.color || '#64748b')}"
             >
               <button
                 type="button"
@@ -218,6 +324,7 @@ function renderEntityCards(collection, label, items, selectedId, summarizeItem) 
                 aria-selected="${selected ? 'true' : 'false'}"
                 title="${escapeHtml(tooltip)}"
               >
+                <span class="entity-card-index">${escapeHtml(routeIndex)}</span>
                 <span class="entity-card-icon" aria-hidden="true">${renderEntityIcon(collection, item)}</span>
                 <span class="entity-card-title">${escapeHtml(name)}</span>
               </button>
@@ -552,6 +659,12 @@ function onClick(event) {
   if (entityCard) {
     setActiveItem(entityCard.dataset.selectCollection, entityCard.dataset.id);
     renderEditors();
+    return;
+  }
+
+  const routeSetCard = event.target.closest('[data-route-set]');
+  if (routeSetCard) {
+    selectRouteSet(Number(routeSetCard.dataset.routeSet));
     return;
   }
 

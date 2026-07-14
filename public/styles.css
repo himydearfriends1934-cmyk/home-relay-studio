@@ -229,6 +229,113 @@ textarea.code {
   display: none;
 }
 
+.route-set-panel {
+  display: grid;
+  gap: 10px;
+  padding: 12px 14px;
+  background: #fff;
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  box-shadow: var(--shadow);
+}
+
+.route-set-head {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 12px;
+}
+
+.route-set-head h2 {
+  margin: 0;
+  font-size: 16px;
+}
+
+.route-set-head .meta {
+  color: var(--muted);
+  font-size: 13px;
+}
+
+.route-set-count {
+  display: grid;
+  place-items: center;
+  min-width: 28px;
+  height: 28px;
+  padding: 0 8px;
+  color: var(--accent);
+  background: var(--accent-soft);
+  border-radius: 999px;
+  font-size: 12px;
+  font-weight: 800;
+}
+
+.route-set-list {
+  display: flex;
+  gap: 10px;
+  overflow-x: auto;
+  padding-bottom: 2px;
+  scrollbar-width: thin;
+}
+
+.route-set-card {
+  display: grid;
+  grid-template-columns: auto minmax(150px, 1fr) auto;
+  align-items: center;
+  gap: 10px;
+  min-width: 280px;
+  max-width: 380px;
+  padding: 10px;
+  color: var(--text);
+  background: #fff;
+  border: 1px solid color-mix(in srgb, var(--route-color) 36%, var(--line));
+  border-left: 5px solid var(--route-color);
+  border-radius: 8px;
+  text-align: left;
+}
+
+.route-set-card.active {
+  background: color-mix(in srgb, var(--route-color) 8%, #fff);
+  box-shadow: inset 0 0 0 1px var(--route-color);
+}
+
+.route-set-card.is-off {
+  opacity: 0.72;
+}
+
+.route-set-index {
+  display: grid;
+  place-items: center;
+  width: 30px;
+  height: 30px;
+  color: #fff;
+  background: var(--route-color);
+  border-radius: 8px;
+  font-weight: 800;
+}
+
+.route-set-main {
+  display: grid;
+  gap: 3px;
+  min-width: 0;
+}
+
+.route-set-main strong,
+.route-set-main span {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.route-set-main span,
+.route-set-status {
+  color: var(--muted);
+  font-size: 12px;
+}
+
+.route-set-status {
+  justify-self: end;
+}
+
 .workflow-grid {
   display: grid;
   gap: 16px;
@@ -356,6 +463,11 @@ textarea.code {
   overflow: hidden;
 }
 
+.entity-card.has-route-color {
+  border-color: color-mix(in srgb, var(--route-color) 42%, var(--line));
+  border-top: 4px solid var(--route-color);
+}
+
 .entity-card.active {
   background: var(--accent-soft);
   border-color: var(--accent);
@@ -416,7 +528,19 @@ textarea.code {
 }
 
 .entity-card-index {
-  display: none;
+  position: absolute;
+  top: 6px;
+  left: 6px;
+  display: grid;
+  place-items: center;
+  min-width: 18px;
+  height: 18px;
+  padding: 0 5px;
+  color: #fff;
+  background: var(--route-color);
+  border-radius: 6px;
+  font-size: 11px;
+  font-weight: 800;
 }
 
 .entity-state-dot {
