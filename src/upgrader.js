@@ -8,13 +8,13 @@ const COPY_DIRS = ['src', 'public', 'test'];
 const COPY_FILES = ['package.json', 'package-lock.json', 'README.md'];
 
 export async function getUpgradeStatus(projectRoot) {
-  const config = getUpgradeConfig(projectRoot);
+  const config = await getUpgradeConfig(projectRoot);
   if (!config.repo) {
     return {
       configured: false,
       enabled: false,
       branch: config.branch,
-      message: 'Set UPGRADE_GITHUB_REPO to owner/repo or a GitHub URL.',
+      message: 'Set UPGRADE_GITHUB_REPO or configure a GitHub origin remote.',
     };
   }
 
@@ -24,6 +24,7 @@ export async function getUpgradeStatus(projectRoot) {
     configured: true,
     enabled: true,
     repo: config.repo,
+    repoSource: config.repoSource,
     branch: config.branch,
     current,
     remote,
@@ -33,7 +34,7 @@ export async function getUpgradeStatus(projectRoot) {
 }
 
 export async function runUpgrade(projectRoot) {
-  const config = getUpgradeConfig(projectRoot);
+  const config = await getUpgradeConfig(projectRoot);
   if (!config.repo) {
     return {
       changed: false,
@@ -50,6 +51,10 @@ export async function runUpgrade(projectRoot) {
       status,
       steps: ['Checked GitHub main. No update was needed.'],
     };
+  }
+
+  if (config.useGitPull) {
+    return runGitUpgrade(projectRoot, config, status);
   }
 
   const tempRoot = await fs.mkdtemp(path.join(os.tmpdir(), 'home-relay-upgrade-'));
@@ -110,10 +115,17 @@ export function scheduleUpgradeRestart() {
   return true;
 }
 
-function getUpgradeConfig(projectRoot) {
+async function getUpgradeConfig(projectRoot) {
+  const repoFromEnv = normalizeRepo(process.env.UPGRADE_GITHUB_REPO || process.env.GITHUB_REPOSITORY || '');
+  const gitOrigin = (await readGitOriginRemote(projectRoot)).trim();
+  const repoFromRemote = repoFromEnv ? '' : normalizeRepo(gitOrigin);
+  const remoteMatchesRepo = !repoFromEnv || normalizeRepo(gitOrigin) === repoFromEnv;
   return {
     projectRoot,
-    repo: normalizeRepo(process.env.UPGRADE_GITHUB_REPO || process.env.GITHUB_REPOSITORY || ''),
+    repo: repoFromEnv || repoFromRemote,
+    repoSource: repoFromEnv ? 'env' : repoFromRemote ? 'git-origin' : '',
+    gitOrigin,
+    useGitPull: Boolean(gitOrigin && remoteMatchesRepo && process.env.UPGRADE_USE_ARCHIVE !== '1'),
     branch: process.env.UPGRADE_BRANCH || 'main',
     token: process.env.UPGRADE_GITHUB_TOKEN || process.env.GITHUB_TOKEN || process.env.GH_TOKEN || '',
     install: process.env.UPGRADE_SKIP_INSTALL !== '1',
@@ -141,15 +153,15 @@ function normalizeRepo(value) {
   return '';
 }
 
-async function readCurrentRevision(projectRoot) {
-  const marker = await readTextIfExists(path.join(projectRoot, '.upgrade-revision'));
-  if (marker.trim()) {
-    return {
-      source: 'marker',
-      sha: marker.trim(),
-      short: shortSha(marker.trim()),
-    };
+async function readGitOriginRemote(projectRoot) {
+  try {
+    return await runCommand('git', ['remote', 'get-url', 'origin'], { cwd: projectRoot, timeoutMs: 8000 });
+  } catch {
+    return '';
   }
+}
+
+async function readCurrentRevision(projectRoot) {
   try {
     const output = await runCommand('git', ['rev-parse', 'HEAD'], { cwd: projectRoot, timeoutMs: 8000 });
     const sha = output.trim();
@@ -159,15 +171,31 @@ async function readCurrentRevision(projectRoot) {
       short: shortSha(sha),
     };
   } catch {
+    const marker = await readTextIfExists(path.join(projectRoot, '.upgrade-revision'));
+    if (!marker.trim()) {
+      return {
+        source: 'unknown',
+        sha: '',
+        short: '',
+      };
+    }
     return {
-      source: 'unknown',
-      sha: '',
-      short: '',
+      source: 'marker',
+      sha: marker.trim(),
+      short: shortSha(marker.trim()),
     };
   }
 }
 
 async function readRemoteRevision(config) {
+  if (config.useGitPull) {
+    try {
+      return await readGitRemoteRevision(config);
+    } catch {
+      // Fall through to the GitHub API path for archive-style deployments.
+    }
+  }
+
   const response = await fetch(`https://api.github.com/repos/${config.repo}/commits/${encodeURIComponent(config.branch)}`, {
     headers: githubHeaders(config),
   });
@@ -183,6 +211,73 @@ async function readRemoteRevision(config) {
     url: json.html_url || '',
     date: json.commit?.committer?.date || '',
   };
+}
+
+async function readGitRemoteRevision(config) {
+  const ref = `refs/heads/${config.branch}`;
+  const output = await runCommand('git', ['ls-remote', 'origin', ref], {
+    cwd: config.projectRoot,
+    timeoutMs: 30000,
+  });
+  const sha = output.trim().split(/\s+/)[0] || '';
+  if (!sha) {
+    throw new Error(`GitHub branch ${config.branch} was not found on origin.`);
+  }
+  return {
+    source: 'git-origin',
+    sha,
+    short: shortSha(sha),
+    url: githubCommitUrl(config.repo, sha),
+  };
+}
+
+async function runGitUpgrade(projectRoot, config, status) {
+  const steps = [];
+  await ensureGitBranch(projectRoot, config.branch);
+  await ensureCleanGitWorktree(projectRoot);
+  steps.push('Verified Git worktree is clean.');
+  await runCommand('git', ['fetch', 'origin', config.branch], { cwd: projectRoot, timeoutMs: 120000 });
+  steps.push('Fetched GitHub branch.');
+  await runCommand('git', ['merge', '--ff-only', 'FETCH_HEAD'], { cwd: projectRoot, timeoutMs: 120000 });
+  steps.push('Fast-forwarded local checkout.');
+  await fs.rm(path.join(projectRoot, '.upgrade-revision'), { force: true });
+  if (config.install !== false) {
+    await installDependencies(projectRoot);
+    steps.push('Installed production dependencies.');
+  }
+  return {
+    changed: true,
+    restartScheduled: getRestartMode() !== 'none',
+    status: {
+      ...status,
+      current: await readCurrentRevision(projectRoot),
+    },
+    steps,
+    restart: {
+      mode: getRestartMode(),
+      commandConfigured: Boolean(process.env.UPGRADE_RESTART_COMMAND),
+    },
+  };
+}
+
+async function ensureGitBranch(projectRoot, branch) {
+  const current = (await runCommand('git', ['rev-parse', '--abbrev-ref', 'HEAD'], {
+    cwd: projectRoot,
+    timeoutMs: 8000,
+  })).trim();
+  if (current && current !== 'HEAD' && current !== branch) {
+    throw new Error(`Current Git branch is ${current}. Set UPGRADE_BRANCH=${current} or switch to ${branch} before upgrading.`);
+  }
+}
+
+async function ensureCleanGitWorktree(projectRoot) {
+  const status = await runCommand('git', ['status', '--porcelain'], {
+    cwd: projectRoot,
+    timeoutMs: 8000,
+  });
+  if (status.trim()) {
+    throw new Error('Local Git worktree has uncommitted changes. Commit or stash them before upgrading.');
+  }
 }
 
 async function downloadTarball(config, archivePath) {
@@ -285,4 +380,8 @@ function runCommand(command, args, options = {}) {
 
 function shortSha(value) {
   return String(value || '').slice(0, 7);
+}
+
+function githubCommitUrl(repo, sha) {
+  return repo && sha ? `https://github.com/${repo}/commit/${sha}` : '';
 }

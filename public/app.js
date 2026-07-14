@@ -59,7 +59,7 @@ function renderShell() {
           <button class="primary" data-action="save">Save</button>
           <button class="primary" data-action="generate">Generate</button>
           <button class="primary" data-action="diagnose">Diagnose</button>
-          <button data-action="upgrade-now">Upgrade</button>
+          <button data-action="upgrade-now">一键升级</button>
         </div>
       </section>
 
@@ -680,7 +680,7 @@ function renderUpgradePanel() {
 
 function renderUpgradeContent() {
   if (ui.upgrade.running) {
-    return '<strong>Upgrade</strong><span class="muted">Checking GitHub main and applying updates...</span>';
+    return '<strong>一键升级</strong><span class="muted">正在从 GitHub 检查并拉取更新...</span>';
   }
   if (ui.upgrade.error) {
     return `<strong>Upgrade failed</strong><span class="error">${escapeHtml(ui.upgrade.error)}</span>`;
