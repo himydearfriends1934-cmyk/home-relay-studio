@@ -73,7 +73,7 @@ function renderShell() {
 
       <section class="band stats" id="stats"></section>
 
-      <div class="config-stack">
+      <div class="config-grid">
         <section class="band config-section">
           <div class="section-head">
             <h2>Sources</h2>

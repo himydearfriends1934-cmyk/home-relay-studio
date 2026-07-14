@@ -155,9 +155,11 @@ textarea.code {
   grid-template-columns: repeat(3, minmax(0, 1fr));
 }
 
-.config-stack {
+.config-grid {
   display: grid;
-  gap: 16px;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 12px;
+  align-items: start;
 }
 
 .full-row {
@@ -214,15 +216,16 @@ textarea.code {
 }
 
 .entity-card-row {
-  display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(176px, 220px));
+  display: flex;
   gap: 8px;
-  align-items: stretch;
+  overflow-x: auto;
+  padding-bottom: 4px;
 }
 
 .entity-card {
   display: grid;
   gap: 4px;
+  flex: 0 0 152px;
   text-align: left;
   align-content: start;
   background: #fff;
@@ -365,7 +368,7 @@ textarea.code {
 }
 
 .config-section .field-grid {
-  grid-template-columns: repeat(3, minmax(0, 1fr));
+  grid-template-columns: 1fr;
 }
 
 .field-grid {
@@ -556,15 +559,17 @@ textarea.code {
 }
 
 @media (max-width: 1200px) {
+  .config-grid {
+    grid-template-columns: repeat(3, minmax(300px, 1fr));
+    overflow-x: auto;
+    padding-bottom: 4px;
+  }
+
   .workflow-grid {
     grid-template-columns: 1fr;
   }
 
   .field-grid {
-    grid-template-columns: repeat(2, minmax(0, 1fr));
-  }
-
-  .config-section .field-grid {
     grid-template-columns: repeat(2, minmax(0, 1fr));
   }
 
@@ -587,8 +592,7 @@ textarea.code {
     grid-template-columns: 1fr;
   }
 
-  .config-section .field-grid,
-  .entity-card-row {
+  .config-section .field-grid {
     grid-template-columns: 1fr;
   }
 
