@@ -10,7 +10,25 @@
 - 生成 sing-box 可用的链式代理配置
 - 做端口、UDP、规则和链路一致性检测
 
-## 一键安装（推荐）
+## 一条命令安装、更新或删除（推荐）
+
+在 Linux 服务器终端粘贴下面这一条命令：
+
+```bash
+bash <(curl -fsSL https://raw.githubusercontent.com/himydearfriends1934-cmyk/home-relay-studio/main/setup.sh)
+```
+
+命令运行后会显示菜单：
+
+```text
+1. 全新安装（已安装时自动显示“更新系统”）
+2. 删除系统
+0. 退出
+```
+
+选择安装或更新后，程序才会继续执行环境、目录和端口检测。默认安装在 `~/.home-relay-studio`；再次运行同一条命令即可更新或删除。
+
+## 仓库内安装脚本
 
 安装程序会在安装依赖前依次检查：
 
@@ -24,7 +42,7 @@ Windows 用户可以双击 `install.cmd`，也可以在 PowerShell 中运行：
 .\install.cmd
 ```
 
-Linux / macOS：
+Linux / macOS（已下载本仓库时）：
 
 ```bash
 ./install.sh
