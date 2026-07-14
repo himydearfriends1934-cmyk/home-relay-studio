@@ -336,6 +336,61 @@ textarea.code {
   justify-self: end;
 }
 
+.route-set-table-wrap {
+  overflow-x: auto;
+}
+
+.route-set-table {
+  width: 100%;
+  min-width: 860px;
+  border-collapse: collapse;
+  font-size: 13px;
+}
+
+.route-set-table th,
+.route-set-table td {
+  padding: 9px 10px;
+  border-top: 1px solid var(--line);
+  vertical-align: top;
+  text-align: left;
+}
+
+.route-set-table th {
+  color: var(--muted);
+  font-size: 11px;
+  font-weight: 800;
+  text-transform: uppercase;
+}
+
+.route-set-row {
+  border-left: 4px solid var(--route-color);
+  cursor: pointer;
+}
+
+.route-set-row:hover,
+.route-set-row.active {
+  background: color-mix(in srgb, var(--route-color) 7%, #fff);
+}
+
+.route-set-row.is-off {
+  opacity: 0.74;
+}
+
+.route-output-code {
+  max-width: 420px;
+  max-height: 72px;
+  margin: 0;
+  overflow: auto;
+  white-space: pre;
+  color: #0f172a;
+  background: #f8fafc;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  padding: 7px 8px;
+  font-size: 11px;
+  line-height: 1.35;
+}
+
 .workflow-grid {
   display: grid;
   gap: 16px;

@@ -164,7 +164,8 @@ function renderRouteSetPanel() {
   const panel = root.querySelector('#route-set-panel');
   if (!panel) return;
   const sets = getRouteSets();
-  const cards = sets.map((set) => {
+  const outputMap = getRouteOutputMap();
+  const rows = sets.map((set) => {
     const active =
       (set.sourceIds[0] && ui.activeItems.sources === set.sourceIds[0]) ||
       (set.egressIds[0] && ui.activeItems.egresses === set.egressIds[0]) ||
@@ -175,34 +176,65 @@ function renderRouteSetPanel() {
     const egressNames = set.egressIds
       .map((id) => state.egresses.find((item) => item.id === id)?.name || id)
       .join(', ') || 'No egress';
-    const status = set.enabled ? 'running' : 'saved';
+    const output = outputMap.get(set.key);
+    const protocols = output?.protocols?.length
+      ? output.protocols.map((protocol) => PROTOCOL_LABELS[protocol] || protocol).join(', ')
+      : getRouteSetProtocolText(set);
+    const outputCode = output?.code || 'Generate to save this route output.';
+    const outputLines = outputCode.split('\n').slice(0, 3).join('\n');
     return `
-      <button
-        type="button"
-        class="route-set-card ${active ? 'active' : ''} ${set.enabled ? '' : 'is-off'}"
+      <tr
+        class="route-set-row ${active ? 'active' : ''} ${set.enabled ? '' : 'is-off'}"
         data-route-set="${set.index}"
         style="--route-color:${escapeHtml(set.color)}"
       >
-        <span class="route-set-index">${set.index + 1}</span>
-        <span class="route-set-main">
+        <td><span class="route-set-index">${set.index + 1}</span></td>
+        <td>
+          <strong>${escapeHtml(sourceNames)}</strong>
+          <div class="muted">${escapeHtml(set.enabled ? 'running' : 'saved')}</div>
+        </td>
+        <td>${escapeHtml(egressNames)}</td>
+        <td>
           <strong>${escapeHtml(set.title)}</strong>
-          <span>${escapeHtml(sourceNames)} -> ${escapeHtml(egressNames)}</span>
-        </span>
-        <span class="route-set-status">${escapeHtml(status)}</span>
-      </button>
+          <div class="muted">${escapeHtml(set.ruleId || 'no rule')}</div>
+        </td>
+        <td>${escapeHtml(protocols)}</td>
+        <td>
+          <pre class="route-output-code">${escapeHtml(outputLines)}</pre>
+          <div class="muted">${output ? `${output.nodeCount} output nodes | saved ${escapeHtml(output.updatedAt || '')}` : 'not generated yet'}</div>
+        </td>
+        <td>
+          <button data-action="copy-route-output" data-route-set-index="${set.index}" ${output ? '' : 'disabled'}>Copy</button>
+        </td>
+      </tr>
     `;
   }).join('');
   panel.innerHTML = `
     <div class="route-set-head">
       <div>
-        <h2>Route Sets</h2>
-        <div class="meta">Saved and running source / egress / rule bundles</div>
+        <h2>Route Links</h2>
+        <div class="meta">Saved source / egress / rule outputs. Click a row to edit that link.</div>
       </div>
       <div class="route-set-count">${sets.length}</div>
     </div>
-    <div class="route-set-list">
-      ${cards || '<div class="muted">No saved route sets yet. Add a source, egress, and rule to create one.</div>'}
-    </div>
+    ${rows
+      ? `<div class="route-set-table-wrap">
+          <table class="route-set-table">
+            <thead>
+              <tr>
+                <th>Link</th>
+                <th>Source</th>
+                <th>Egress</th>
+                <th>Rule</th>
+                <th>Protocols</th>
+                <th>Output code</th>
+                <th></th>
+              </tr>
+            </thead>
+            <tbody>${rows}</tbody>
+          </table>
+        </div>`
+      : '<div class="muted">No saved route links yet. Add a source, egress, and rule to create one.</div>'}
   `;
 }
 
@@ -218,10 +250,13 @@ function getRouteSets() {
       const egressIds = (rule.targets || []).filter((id) => egresses.some((egress) => egress.id === id));
       return {
         index,
+        key: `rule:${rule.id}`,
         color: ROUTE_COLORS[index % ROUTE_COLORS.length],
         title: rule.name || `Route ${index + 1}`,
         enabled: rule.enabled,
         ruleId: rule.id,
+        ruleName: rule.name || '',
+        protocols: rule.match?.protocols || [],
         sourceIds,
         egressIds,
       };
@@ -230,13 +265,83 @@ function getRouteSets() {
   const count = Math.max(sources.length, egresses.length);
   return Array.from({ length: count }, (_, index) => ({
     index,
+    key: `pair:${index}`,
     color: ROUTE_COLORS[index % ROUTE_COLORS.length],
     title: `Route ${index + 1}`,
     enabled: Boolean(sources[index]?.enabled && egresses[index]?.enabled),
     ruleId: '',
+    ruleName: '',
+    protocols: [],
     sourceIds: sources[index] ? [sources[index].id] : [],
     egressIds: egresses[index] ? [egresses[index].id] : [],
   }));
+}
+
+function getRouteOutputMap() {
+  const outputs = buildRouteOutputSnapshots(ui.generated);
+  if (outputs.length > 0) {
+    return new Map(outputs.map((output) => [output.key, output]));
+  }
+  const savedOutputs = Array.isArray(state.export?.routeOutputs) ? state.export.routeOutputs : [];
+  return new Map(savedOutputs.map((output) => [output.key, output]));
+}
+
+function getRouteSetProtocolText(set) {
+  const protocols = Array.isArray(set.protocols) && set.protocols.length > 0 ? set.protocols : PROTOCOL_OPTIONS;
+  return protocols.map((protocol) => PROTOCOL_LABELS[protocol] || protocol).join(', ');
+}
+
+function buildRouteOutputSnapshots(generated) {
+  const assignments = Array.isArray(generated?.assignments) ? generated.assignments : [];
+  if (assignments.length === 0) return [];
+  const updatedAt = new Date().toISOString().slice(0, 19).replace('T', ' ');
+  return getRouteSets().map((set) => {
+    const matched = assignments.filter((assignment) => assignmentBelongsToRouteSet(assignment, set));
+    const protocols = uniqueStrings(matched.map((assignment) => assignment.node?.protocol || '').filter(Boolean));
+    const sourceNames = set.sourceIds.map((id) => state.sources.find((source) => source.id === id)?.name || id);
+    const egressNames = set.egressIds.map((id) => state.egresses.find((egress) => egress.id === id)?.name || id);
+    return {
+      key: set.key,
+      index: set.index,
+      title: set.title,
+      ruleId: set.ruleId,
+      ruleName: set.ruleName || set.title,
+      sourceNames,
+      egressNames,
+      protocols,
+      nodeCount: matched.length,
+      code: buildRouteOutputCode(set, matched, sourceNames, egressNames),
+      updatedAt,
+    };
+  });
+}
+
+function assignmentBelongsToRouteSet(assignment, set) {
+  if (set.ruleId) return assignment.ruleId === set.ruleId;
+  const sourceMatch = set.sourceIds.length === 0 || set.sourceIds.includes(assignment.sourceId);
+  const egressMatch = set.egressIds.length === 0 || set.egressIds.includes(assignment.egressId);
+  return sourceMatch && egressMatch;
+}
+
+function buildRouteOutputCode(set, assignments, sourceNames, egressNames) {
+  const lines = [
+    `# Link ${set.index + 1}: ${set.title}`,
+    `# Source: ${sourceNames.join(', ') || 'Any source'}`,
+    `# Egress: ${egressNames.join(', ') || 'No egress'}`,
+    `# Rule: ${set.ruleName || set.ruleId || 'No rule'}`,
+  ];
+  if (assignments.length === 0) {
+    lines.push('# No output nodes generated for this link.');
+    return lines.join('\n');
+  }
+  for (const [index, assignment] of assignments.entries()) {
+    lines.push(`${index + 1}. ${assignment.node?.protocol || 'unknown'} | ${assignment.node?.name || 'unnamed'} -> ${assignment.egress?.name || assignment.egressId || 'egress'} | ${assignment.tag}`);
+  }
+  return lines.join('\n');
+}
+
+function uniqueStrings(values) {
+  return Array.from(new Set(values.map((value) => String(value)).filter(Boolean)));
 }
 
 function getEntityRouteMeta(collection, item) {
@@ -699,7 +804,7 @@ function onClick(event) {
   }
 
   const routeSetCard = event.target.closest('[data-route-set]');
-  if (routeSetCard) {
+  if (routeSetCard && !event.target.closest('[data-action]')) {
     selectRouteSet(Number(routeSetCard.dataset.routeSet));
     return;
   }
@@ -735,6 +840,7 @@ function onClick(event) {
   if (action === 'preview-source') previewSource(id).catch(console.error);
   if (action === 'test-source') testSource(id).catch(console.error);
   if (action === 'copy-config') copyCurrentConfig();
+  if (action === 'copy-route-output') copyRouteOutput(Number(button.dataset.routeSetIndex)).catch(console.error);
   if (action === 'copy-export-link') copyText(getExportUrl(ui.exportFormat)).catch(console.error);
   if (action === 'open-export-link') window.open(getExportUrl(ui.exportFormat), '_blank', 'noopener');
   if (action === 'download-config') downloadText('sing-box.config.json', JSON.stringify(ui.generated?.config || {}, null, 2));
@@ -1092,6 +1198,9 @@ async function generateConfig() {
       ui.preflight.error = '配置在检查过程中发生了变化，请重新生成。';
     } else {
       ui.generated = generated;
+      state.export = state.export || {};
+      state.export.routeOutputs = buildRouteOutputSnapshots(generated);
+      saveNow().catch(() => {});
     }
   } catch (error) {
     ui.generated = null;
@@ -1099,6 +1208,7 @@ async function generateConfig() {
   } finally {
     ui.preflight.running = false;
     updateGenerateButton();
+    renderRouteSetPanel();
     renderOutput();
   }
 }
@@ -1647,6 +1757,11 @@ function copyCurrentConfig() {
 
 function copyText(value) {
   return navigator.clipboard.writeText(String(value ?? '')).catch(() => {});
+}
+
+function copyRouteOutput(index) {
+  const output = Array.from(getRouteOutputMap().values()).find((item) => item.index === index);
+  return copyText(output?.code || '');
 }
 
 function getExportUrl(format, download = false) {

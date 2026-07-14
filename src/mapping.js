@@ -49,10 +49,10 @@ export function buildAssignments(state, parsedSources) {
         });
         continue;
       }
-      for (const targetId of targets) {
-        const egress = egressById.get(targetId);
+      for (const target of targets) {
+        const egress = egressById.get(target.egressId);
         if (!egress) continue;
-        const baseTag = createAssignmentTag(bundle.source.name, node.name, egress.name, targetId);
+        const baseTag = createAssignmentTag(bundle.source.name, node.name, egress.name, target.egressId);
         let tag = baseTag;
         let suffix = 2;
         while (usedTags.has(tag)) {
@@ -65,7 +65,10 @@ export function buildAssignments(state, parsedSources) {
           sourceName: bundle.source.name,
           node,
           egress,
-          egressId: targetId,
+          egressId: target.egressId,
+          ruleId: target.ruleId || '',
+          ruleName: target.ruleName || '',
+          assignmentSource: target.source || 'rule',
           tag,
         });
       }
@@ -96,15 +99,21 @@ export function resolveNodeTargets(node, source, rules, defaultEgressId, egressB
   for (const rule of rules) {
     if (!ruleMatchesNode(rule, node, source)) continue;
     if (rule.targets.length > 0) matchedExplicitTargets = true;
+    const ruleTargets = rule.targets.map((egressId) => ({
+      egressId,
+      ruleId: rule.id,
+      ruleName: rule.name,
+      source: 'rule',
+    }));
     if (rule.targetMode === 'replace') {
-      targets = rule.targets.slice();
+      targets = ruleTargets;
     } else {
-      targets = targets.concat(rule.targets);
+      targets = targets.concat(ruleTargets);
     }
     if (rule.stop) break;
   }
 
-  targets = uniqueBy(targets.filter((id) => egressById.has(id)), (id) => id);
+  targets = uniqueBy(targets.filter((target) => egressById.has(target.egressId)), (target) => target.egressId);
   if (
     targets.length === 0 &&
     !matchedExplicitTargets &&
@@ -112,7 +121,12 @@ export function resolveNodeTargets(node, source, rules, defaultEgressId, egressB
     defaultEgressId &&
     egressById.has(defaultEgressId)
   ) {
-    targets = [defaultEgressId];
+    targets = [{
+      egressId: defaultEgressId,
+      ruleId: '',
+      ruleName: '',
+      source: 'default',
+    }];
   }
   return targets;
 }

@@ -249,6 +249,8 @@ test('source-scoped protocol rules block default fallback for unselected protoco
 
   assert.equal(result.assignments.length, 1);
   assert.equal(result.assignments[0].node.protocol, 'vless');
+  assert.equal(result.assignments[0].ruleId, 'rule-vless');
+  assert.equal(result.assignments[0].ruleName, 'Only VLESS');
   assert.ok(result.assignmentWarnings.some((warning) => warning.nodeName === 'trojan-node'));
 });
 
