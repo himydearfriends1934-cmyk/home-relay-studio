@@ -794,6 +794,45 @@ textarea.code {
   background: var(--accent-soft);
 }
 
+.protocol-check-list {
+  display: grid;
+  gap: 7px;
+  grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+}
+
+.protocol-check-item {
+  display: grid;
+  grid-template-columns: auto 1fr auto;
+  align-items: center;
+  gap: 9px;
+  min-height: 38px;
+  padding: 8px 10px;
+  background: #fff;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  cursor: pointer;
+}
+
+.protocol-check-item.checked {
+  background: var(--accent-soft);
+  border-color: var(--accent);
+}
+
+.protocol-check-item input {
+  width: 16px;
+  height: 16px;
+  margin: 0;
+}
+
+.protocol-check-name {
+  font-weight: 800;
+}
+
+.protocol-check-item small {
+  color: var(--muted);
+  font-size: 11px;
+}
+
 .qr-panel {
   display: grid;
   gap: 12px;

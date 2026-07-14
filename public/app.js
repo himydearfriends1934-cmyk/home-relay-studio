@@ -1,6 +1,16 @@
 const root = document.getElementById('app');
 
 const PROTOCOL_OPTIONS = ['http', 'socks', 'shadowsocks', 'vmess', 'vless', 'trojan', 'hysteria2', 'tuic'];
+const PROTOCOL_LABELS = {
+  http: 'HTTP',
+  socks: 'SOCKS5',
+  shadowsocks: 'Shadowsocks',
+  vmess: 'VMess',
+  vless: 'VLESS',
+  trojan: 'Trojan',
+  hysteria2: 'Hysteria2',
+  tuic: 'TUIC',
+};
 const SOURCE_KIND_OPTIONS = ['url', 'text'];
 const FORMAT_OPTIONS = ['auto', 'sing-box', 'clash', 'uri', 'json', 'yaml'];
 const TARGET_MODE_OPTIONS = ['append', 'replace'];
@@ -485,7 +495,7 @@ function renderRule(rule, index) {
           ${textField(`rules.${index}.name`, '名称', rule.name)}
           ${checkboxField(`rules.${index}.enabled`, '启用', rule.enabled)}
           ${pickerField(`rules.${index}.match.sourceIds`, '来源', sourceOptions, rule.match?.sourceIds || [], 'wide')}
-          ${pickerField(`rules.${index}.match.protocols`, '协议筛选（空为全部）', PROTOCOL_OPTIONS, rule.match?.protocols || [], 'wide')}
+          ${protocolChecklistField(`rules.${index}.match.protocols`, '协议筛选（空为全部）', rule.match?.protocols || [], 'wide')}
           ${pickerField(`rules.${index}.targets`, '目标出口', egressOptions, rule.targets || [], 'wide')}
         </div>
         <details class="advanced" data-details-key="rule:${escapeHtml(rule.id)}:advanced" ${detailsOpen(`rule:${rule.id}:advanced`)}>
@@ -723,6 +733,7 @@ function onChange(event) {
     updateArrayFromInput(target);
     queueSave(true);
     target.closest('.picker-chip')?.classList.toggle('picked', target.checked);
+    target.closest('.protocol-check-item')?.classList.toggle('checked', target.checked);
     return;
   }
   if (!target.matches('[data-path]')) return;
@@ -1547,6 +1558,28 @@ function pickerField(path, label, options, selectedValues, extraClass = '') {
             `;
           })
           .join('')}
+      </div>
+    </div>
+  `;
+}
+
+function protocolChecklistField(path, label, selectedValues, extraClass = '') {
+  const cls = extraClass ? `field ${extraClass}` : 'field';
+  const selected = new Set((selectedValues || []).map((value) => String(value)));
+  return `
+    <div class="${cls}">
+      <span>${escapeHtml(label)}</span>
+      <div class="protocol-check-list">
+        ${PROTOCOL_OPTIONS.map((protocol) => {
+          const checked = selected.has(protocol);
+          return `
+            <label class="protocol-check-item ${checked ? 'checked' : ''}">
+              <input data-array-path="${escapeHtml(path)}" data-array-value="${escapeHtml(protocol)}" type="checkbox" ${checked ? 'checked' : ''} />
+              <span class="protocol-check-name">${escapeHtml(PROTOCOL_LABELS[protocol] || protocol)}</span>
+              <small>${escapeHtml(protocol)}</small>
+            </label>
+          `;
+        }).join('')}
       </div>
     </div>
   `;
