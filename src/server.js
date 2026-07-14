@@ -8,6 +8,7 @@ import { diagnoseState } from './diagnostics.js';
 import { getClientExport } from './exporters.js';
 import { generateNormalizedSnapshot, generateSingBoxConfig } from './generator.js';
 import { parseSubscriptionContent } from './parsers.js';
+import { getQrPayload } from './qr.js';
 import { normalizeState } from './state.js';
 import { loadState, saveState } from './store.js';
 import { getUpgradeStatus, runUpgrade, scheduleUpgradeRestart } from './upgrader.js';
@@ -108,7 +109,8 @@ async function routeRequest(req, res) {
     if (!text) {
       return sendText(res, 400, 'Missing text parameter');
     }
-    const svg = await QRCode.toString(text, {
+    const payload = getQrPayload(url.searchParams.get('format') || '', text);
+    const svg = await QRCode.toString(payload, {
       type: 'svg',
       margin: 1,
       width: 260,

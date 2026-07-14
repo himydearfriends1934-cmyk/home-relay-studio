@@ -720,7 +720,7 @@ function renderExportOutput() {
         ? `
           <div class="qr-panel">
             <img class="qr-image" src="${escapeHtml(qrUrl)}" alt="${escapeHtml(meta.label)} QR" />
-            <div class="muted">${escapeHtml(exportUrl)}</div>
+            <div class="muted">${ui.exportFormat === 'shadowrocket' ? 'Shadowrocket subscription QR' : escapeHtml(exportUrl)}</div>
           </div>
         `
         : `
@@ -943,7 +943,7 @@ function getExportUrl(format, download = false) {
 }
 
 function getExportQrUrl(format) {
-  return `/api/qr?text=${encodeURIComponent(getExportUrl(format))}`;
+  return `/api/qr?format=${encodeURIComponent(format)}&text=${encodeURIComponent(getExportUrl(format))}`;
 }
 
 function downloadText(filename, content) {
