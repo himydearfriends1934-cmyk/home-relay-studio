@@ -73,8 +73,8 @@ function renderShell() {
 
       <section class="band stats" id="stats"></section>
 
-      <div class="workflow-grid">
-        <section class="band">
+      <div class="config-stack">
+        <section class="band config-section">
           <div class="section-head">
             <h2>Sources</h2>
             <div class="meta">Raw subscription catalog</div>
@@ -82,7 +82,7 @@ function renderShell() {
           <div class="entity-list" id="source-list"></div>
         </section>
 
-        <section class="band">
+        <section class="band config-section">
           <div class="section-head">
             <h2>Egresses</h2>
             <div class="meta">Home broadband catalog</div>
@@ -90,7 +90,7 @@ function renderShell() {
           <div class="entity-list" id="egress-list"></div>
         </section>
 
-        <section class="band">
+        <section class="band config-section">
           <div class="section-head">
             <h2>Rules</h2>
             <div class="meta">Map protocols, names, and sources to egresses</div>
@@ -145,9 +145,11 @@ function renderEntityDeck(collection, label, items, renderItem, summarizeItem) {
   const selectedIndex = Math.max(0, items.findIndex((item) => item.id === selectedId));
   const selectedItem = items[selectedIndex];
   return `
-    ${renderEntityCards(collection, label, items, selectedItem.id, summarizeItem)}
-    <div class="entity-editor">
-      ${renderItem(selectedItem, selectedIndex)}
+    <div class="entity-deck">
+      ${renderEntityCards(collection, label, items, selectedItem.id, summarizeItem)}
+      <div class="entity-editor">
+        ${renderItem(selectedItem, selectedIndex)}
+      </div>
     </div>
   `;
 }
