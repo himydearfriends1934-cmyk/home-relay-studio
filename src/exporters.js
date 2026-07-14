@@ -61,6 +61,19 @@ export function getClientExport(format, state, parsedSources) {
     };
   }
 
+  if (id === 'shadowrocket') {
+    return {
+      ...meta,
+      contentType: 'text/yaml; charset=utf-8',
+      filename: 'shadowrocket-chain.yaml',
+      body: yaml.dump(generateClashConfig(state, singBox.assignments), {
+        lineWidth: -1,
+        noRefs: true,
+        sortKeys: false,
+      }),
+    };
+  }
+
   const uriText = generateUriSubscription(state, singBox.assignments).join('\n');
   return {
     ...meta,
@@ -72,26 +85,20 @@ export function generateClashConfig(state, assignments) {
   const usedNames = new Set();
   const proxies = [];
   const groups = [];
-  const egressTags = new Map();
   const sourceGroups = [];
   const egressAutoGroups = [];
   const nodeTagsBySource = new Map();
   const nodeTagsByEgress = new Map();
 
-  for (const egress of state.egresses.filter((item) => item.enabled)) {
-    const tag = makeUniqueName(`egress-${egress.name || egress.id}`, usedNames);
-    egressTags.set(egress.id, egress.protocol === 'direct' ? 'DIRECT' : tag);
-    if (egress.protocol !== 'direct') {
-      proxies.push(buildClashProxy(egress, tag));
-    }
-  }
-
   for (const assignment of assignments) {
-    const egressTag = egressTags.get(assignment.egressId);
-    if (!egressTag) continue;
     const displayName = formatAssignmentName(assignment, state.export?.nameTemplate);
-    const tag = makeUniqueName(displayName, usedNames);
-    proxies.push(buildClashProxy(assignment.node, tag, egressTag === 'DIRECT' ? '' : egressTag));
+    const frontTag = makeUniqueName(`front-${assignment.sourceName}-${assignment.node.name}`, usedNames);
+    proxies.push(buildClashProxy(assignment.node, frontTag));
+    let tag = frontTag;
+    if (assignment.egress.protocol !== 'direct') {
+      tag = makeUniqueName(displayName, usedNames);
+      proxies.push(buildClashProxy(assignment.egress, tag, frontTag));
+    }
 
     if (!nodeTagsBySource.has(assignment.sourceId)) nodeTagsBySource.set(assignment.sourceId, []);
     nodeTagsBySource.get(assignment.sourceId).push(tag);
@@ -156,7 +163,6 @@ export function generateClashConfig(state, assignments) {
         state.export?.includeUrlTest !== false && mainCandidates.length > 0 ? autoTag : '',
         ...mainCandidates,
         sourceGroups.length > 0 ? 'relay-sources' : '',
-        ...Array.from(egressTags.values()).filter((value) => value && value !== 'DIRECT'),
         'DIRECT',
       ].filter(Boolean),
       (value) => value,

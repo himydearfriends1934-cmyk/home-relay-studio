@@ -48,6 +48,37 @@ test('generates chained config with detour', () => {
   assert.equal(result.assignments.length, 1);
   const outbound = result.config.outbounds.find((item) => item.tag === result.assignments[0].tag);
   assert.ok(outbound);
-  assert.equal(outbound.detour, 'egress-eg-1');
+  assert.equal(outbound.type, 'socks');
+  assert.match(outbound.detour, /^front-/);
+  const front = result.config.outbounds.find((item) => item.tag === outbound.detour);
+  assert.equal(front.type, 'vless');
+  assert.equal(front.detour, undefined);
   assert.equal(result.config.route.final, 'relay-main');
+});
+
+test('chains every supported source protocol through the final home egress', () => {
+  const protocols = ['http', 'socks', 'shadowsocks', 'vmess', 'vless', 'trojan', 'hysteria2', 'tuic'];
+  for (const protocol of protocols) {
+    const state = normalizeState({
+      sources: [{ id: 'src-1', name: 'All protocols', kind: 'text', enabled: true }],
+      egresses: [{ id: 'eg-fr', name: 'France home', protocol: 'socks', server: 'home.example.com', port: 1080, enabled: true }],
+      rules: [{ id: 'rule-all', name: 'All to France', enabled: true, priority: 1, targetMode: 'replace', stop: true, match: {}, targets: ['eg-fr'] }],
+    });
+    const node = {
+      protocol,
+      name: `${protocol}-node`,
+      server: 'front.example.com',
+      port: 443,
+      username: 'user',
+      password: 'pass',
+      uuid: '11111111-1111-1111-1111-111111111111',
+      method: 'aes-128-gcm',
+    };
+    const result = generateSingBoxConfig(state, [{ source: state.sources[0], nodes: [node], warnings: [], errors: [] }]);
+    const assignment = result.assignments[0];
+    const finalHop = result.config.outbounds.find((item) => item.tag === assignment.tag);
+    const frontHop = result.config.outbounds.find((item) => item.tag === finalHop.detour);
+    assert.equal(finalHop.type, 'socks', `${protocol} should finish at the home egress`);
+    assert.equal(frontHop.type, protocol, `${protocol} should be the front hop`);
+  }
 });

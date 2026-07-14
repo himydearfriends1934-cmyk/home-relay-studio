@@ -12,23 +12,21 @@ export function generateSingBoxConfig(state, parsedSources) {
   const assignmentsResult = buildAssignments(state, parsedSources);
   const { assignments } = assignmentsResult;
   const outbounds = [];
-  const egressTags = new Map();
   const nodeTagsBySource = new Map();
   const nodeTagsByEgress = new Map();
   let finalTag = 'direct';
 
-  for (const egress of state.egresses.filter((item) => item.enabled)) {
-    const tag = sanitizeTag(`egress-${egress.id}`);
-    egressTags.set(egress.id, tag);
-    outbounds.push(buildEgressOutbound(egress, tag));
-  }
-
   for (const assignment of assignments) {
-    const egressTag = egressTags.get(assignment.egressId);
-    if (!egressTag) continue;
     const tag = assignment.tag;
-    const outbound = buildProxyOutbound(assignment.node, tag, egressTag);
-    outbounds.push(outbound);
+    if (assignment.egress.protocol === 'direct') {
+      outbounds.push(buildProxyOutbound(assignment.node, tag));
+    } else {
+      const frontTag = sanitizeTag(`front-${tag}`);
+      outbounds.push(buildProxyOutbound(assignment.node, frontTag));
+      const egressOutbound = buildEgressOutbound(assignment.egress, tag);
+      egressOutbound.detour = frontTag;
+      outbounds.push(egressOutbound);
+    }
 
     if (!nodeTagsBySource.has(assignment.sourceId)) nodeTagsBySource.set(assignment.sourceId, []);
     nodeTagsBySource.get(assignment.sourceId).push(tag);

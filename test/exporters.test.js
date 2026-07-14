@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict';
 import { Buffer } from 'node:buffer';
 import test from 'node:test';
+import yaml from 'js-yaml';
 import { getClientExport } from '../src/exporters.js';
 import { parseSubscriptionContent } from '../src/parsers.js';
 import { normalizeState } from '../src/state.js';
@@ -55,8 +56,20 @@ test('exports clash config with dialer proxy chain', () => {
   const output = getClientExport('clash', state, parsedSources);
   assert.equal(output.filename, 'clash.yaml');
   assert.match(output.body, /dialer-proxy:/);
-  assert.match(output.body, /egress-france/);
+  const config = yaml.load(output.body);
+  const finalProxy = config.proxies.find((item) => item.name === 'Source 1 via france');
+  assert.equal(finalProxy.type, 'http');
+  const frontProxy = config.proxies.find((item) => item.name === finalProxy['dialer-proxy']);
+  assert.equal(frontProxy.type, 'vless');
   assert.match(output.body, /MATCH,relay-main/);
+});
+
+test('exports Shadowrocket-compatible YAML with the home egress as the final hop', () => {
+  const { state, parsedSources } = buildFixture();
+  const output = getClientExport('shadowrocket', state, parsedSources);
+  assert.equal(output.contentType, 'text/yaml; charset=utf-8');
+  assert.match(output.body, /dialer-proxy:/);
+  assert.match(output.body, /type: http/);
 });
 
 test('exports base64 URI subscription for v2ray compatible clients', () => {
