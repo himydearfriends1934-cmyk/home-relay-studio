@@ -26,6 +26,9 @@ const EXPORT_VIEWS = [
   { id: 'link', label: '订阅链接' },
 ];
 
+const CLICK_FEEDBACK_SELECTOR = 'button, .button-link, summary, [data-route-set], [data-select-collection], [data-output-view], [data-view]';
+const IMPORT_RENDER_DELAY_MS = 300;
+
 const ui = {
   mode: 'config',
   generated: null,
@@ -54,6 +57,7 @@ const ui = {
     error: '',
   },
   openDetails: new Set(),
+  actionFeedbackTimer: null,
 };
 
 let state = null;
@@ -96,6 +100,7 @@ function renderShell() {
       <section class="upgrade-strip is-hidden" id="upgrade-panel"></section>
 
       <section class="route-set-panel" id="route-set-panel"></section>
+      <div class="action-feedback" id="action-feedback" aria-live="polite" role="status"></div>
 
       <div class="config-grid">
         <section class="band config-section" data-collection="sources">
@@ -549,6 +554,7 @@ function renderSource(source, index) {
 function renderEgress(egress, index) {
   const authFields = renderEgressAuthFields(egress, index);
   const advancedFields = renderEgressAdvancedFields(egress, index);
+  const quickImport = renderEgressQuickImport(index);
   return `
     <div class="entity" data-kind="egress" data-id="${egress.id}">
       <div class="entity-summary">
@@ -562,6 +568,7 @@ function renderEgress(egress, index) {
         </div>
       </div>
       <div class="entity-body">
+        ${quickImport}
         <div class="field-grid">
           ${textField(`egresses.${index}.name`, '名称', egress.name)}
           ${selectField(`egresses.${index}.protocol`, '协议', PROTOCOL_OPTIONS, egress.protocol)}
@@ -576,6 +583,25 @@ function renderEgress(egress, index) {
             ${advancedFields}
           </div>
         </details>
+      </div>
+    </div>
+  `;
+}
+
+function renderEgressQuickImport(index) {
+  return `
+    <div class="egress-quick-import">
+      <label class="field wide">
+        <span>快速识别</span>
+        <textarea
+          class="egress-quick-import-input"
+          data-egress-import="${index}"
+          placeholder="粘贴 host:port:user:pass 或代理链接"
+        ></textarea>
+      </label>
+      <div class="egress-quick-import-actions">
+        <button type="button" data-action="import-egress" data-index="${index}">识别</button>
+        <small class="field-hint">支持 host:port:user:pass、http(s)://user:pass@host:port、socks5://... 等格式。</small>
       </div>
     </div>
   `;
@@ -782,17 +808,31 @@ function renderExportGrid() {
 }
 
 function wireEvents() {
+  root.addEventListener('pointerdown', onPointerFeedback);
   root.addEventListener('click', onClick);
   root.addEventListener('input', onInput);
   root.addEventListener('change', onChange);
+  root.addEventListener('paste', onPaste);
   root.addEventListener('toggle', onToggle, true);
 }
 
+function onPointerFeedback(event) {
+  const clickable = event.target.closest(CLICK_FEEDBACK_SELECTOR);
+  if (!clickable || clickable.disabled || clickable.getAttribute('aria-disabled') === 'true') return;
+  pulseClickFeedback(clickable);
+}
+
 function onClick(event) {
+  const interactive = event.target.closest(CLICK_FEEDBACK_SELECTOR);
+  if (interactive && interactive.getAttribute('aria-disabled') !== 'true' && !interactive.disabled) {
+    pulseClickFeedback(interactive);
+  }
+
   const exportViewButton = event.target.closest('[data-output-view]');
   if (exportViewButton) {
     ui.exportView = exportViewButton.dataset.outputView;
     renderOutput();
+    showActionFeedback('已切换输出视图', 'done');
     return;
   }
 
@@ -800,12 +840,14 @@ function onClick(event) {
   if (entityCard) {
     setActiveItem(entityCard.dataset.selectCollection, entityCard.dataset.id);
     renderEditors();
+    showActionFeedback('已选中项目', 'done');
     return;
   }
 
   const routeSetCard = event.target.closest('[data-route-set]');
   if (routeSetCard && !event.target.closest('[data-action]')) {
     selectRouteSet(Number(routeSetCard.dataset.routeSet));
+    showActionFeedback('已打开链路', 'done');
     return;
   }
 
@@ -813,6 +855,7 @@ function onClick(event) {
   if (tabButton) {
     ui.mode = tabButton.dataset.view;
     renderOutput();
+    showActionFeedback('已切换面板', 'done');
     return;
   }
 
@@ -823,32 +866,136 @@ function onClick(event) {
   const menu = button.closest('.tools-menu, .more-menu');
   if (menu) menu.removeAttribute('open');
 
-  if (action === 'add-source') addSource();
-  if (action === 'add-egress') addEgress();
-  if (action === 'add-rule') addRule();
-  if (action === 'duplicate-source') duplicateItem('sources', id, 'src');
-  if (action === 'duplicate-egress') duplicateItem('egresses', id, 'eg');
-  if (action === 'duplicate-rule') duplicateItem('rules', id, 'rule');
-  if (action === 'rename-entity') renameItem(button.dataset.collection, id);
-  if (action === 'delete-source') removeItem('sources', id);
-  if (action === 'delete-egress') removeItem('egresses', id);
-  if (action === 'delete-rule') removeItem('rules', id);
-  if (action === 'save') saveNow().catch(() => {});
-  if (action === 'generate') generateConfig();
-  if (action === 'diagnose') diagnose().catch(console.error);
-  if (action === 'upgrade-now') upgradeNow().catch(console.error);
-  if (action === 'preview-source') previewSource(id).catch(console.error);
-  if (action === 'test-source') testSource(id).catch(console.error);
-  if (action === 'copy-config') copyCurrentConfig();
-  if (action === 'copy-route-output') copyRouteOutput(Number(button.dataset.routeSetIndex)).catch(console.error);
-  if (action === 'copy-export-link') copyText(getExportUrl(ui.exportFormat)).catch(console.error);
-  if (action === 'open-export-link') window.open(getExportUrl(ui.exportFormat), '_blank', 'noopener');
-  if (action === 'download-config') downloadText('sing-box.config.json', JSON.stringify(ui.generated?.config || {}, null, 2));
-  if (action === 'download-snapshot') downloadText('relay.snapshot.json', JSON.stringify(ui.generated?.snapshot || {}, null, 2));
+  switch (action) {
+    case 'add-source':
+      return runButtonAction(button, '添加 Source', () => addSource());
+    case 'add-egress':
+      return runButtonAction(button, '添加 Egress', () => addEgress());
+    case 'add-rule':
+      return runButtonAction(button, '添加 Rule', () => addRule());
+    case 'duplicate-source':
+      return runButtonAction(button, '复制 Source', () => duplicateItem('sources', id, 'src'));
+    case 'duplicate-egress':
+      return runButtonAction(button, '复制 Egress', () => duplicateItem('egresses', id, 'eg'));
+    case 'duplicate-rule':
+      return runButtonAction(button, '复制 Rule', () => duplicateItem('rules', id, 'rule'));
+    case 'rename-entity':
+      return runButtonAction(button, '重命名', () => renameItem(button.dataset.collection, id));
+    case 'delete-source':
+      return runButtonAction(button, '删除 Source', () => removeItem('sources', id));
+    case 'delete-egress':
+      return runButtonAction(button, '删除 Egress', () => removeItem('egresses', id));
+    case 'delete-rule':
+      return runButtonAction(button, '删除 Rule', () => removeItem('rules', id));
+    case 'save':
+      return runButtonAction(button, '保存', () => saveNow());
+    case 'generate':
+      return runButtonAction(button, '生成 / 预检', () => generateConfig());
+    case 'diagnose':
+      return runButtonAction(button, '运行诊断', () => diagnose());
+    case 'upgrade-now':
+      return runButtonAction(button, '一键更新', () => upgradeNow());
+    case 'preview-source':
+      return runButtonAction(button, '解析 Source', () => previewSource(id));
+    case 'test-source':
+      return runButtonAction(button, '测试 Source', () => testSource(id));
+    case 'import-egress':
+      return runButtonAction(button, '识别 Egress', () => importEgressFromQuickBox(Number(button.dataset.index)));
+    case 'copy-config':
+      return runButtonAction(button, '复制配置', () => copyCurrentConfig());
+    case 'copy-route-output':
+      return runButtonAction(button, '复制链路输出', () => copyRouteOutput(Number(button.dataset.routeSetIndex)));
+    case 'copy-export-link':
+      return runButtonAction(button, '复制链接', () => copyText(getExportUrl(ui.exportFormat)));
+    case 'open-export-link':
+      return runButtonAction(button, '打开链接', () => {
+        const opened = window.open(getExportUrl(ui.exportFormat), '_blank', 'noopener');
+        if (!opened) throw new Error('浏览器拦截了弹窗。');
+        return opened;
+      });
+    case 'download-config':
+      return runButtonAction(button, '下载配置', () => downloadText('sing-box.config.json', JSON.stringify(ui.generated?.config || {}, null, 2)));
+    case 'download-snapshot':
+      return runButtonAction(button, '下载快照', () => downloadText('relay.snapshot.json', JSON.stringify(ui.generated?.snapshot || {}, null, 2)));
+    default:
+      return runButtonAction(button, '操作', () => {});
+  }
+}
+
+function pulseClickFeedback(element) {
+  element.classList.remove('click-feedback');
+  // Restart the animation even when the same control is clicked repeatedly.
+  void element.offsetWidth;
+  element.classList.add('click-feedback');
+  window.setTimeout(() => element.classList.remove('click-feedback'), 260);
+}
+
+function showActionFeedback(message, status = 'done') {
+  const element = root.querySelector('#action-feedback');
+  if (!element) return;
+  clearTimeout(ui.actionFeedbackTimer);
+  element.dataset.status = status;
+  element.textContent = message;
+  element.classList.add('is-visible');
+  if (status !== 'working') {
+    ui.actionFeedbackTimer = window.setTimeout(() => {
+      element.classList.remove('is-visible');
+    }, 1600);
+  }
+}
+
+function runButtonAction(button, label, action) {
+  if (!button || button.disabled || button.getAttribute('aria-disabled') === 'true') return undefined;
+  button.classList.remove('is-done', 'is-failed');
+  button.classList.add('is-working');
+  button.dataset.actionStatus = 'working';
+  button.setAttribute('aria-busy', 'true');
+  showActionFeedback(`正在${label}...`, 'working');
+
+  let result;
+  try {
+    result = action();
+  } catch (error) {
+    markButtonActionStatus(button, 'failed');
+    showActionFeedback(`${label} 失败：${formatActionError(error)}`, 'failed');
+    console.error(error);
+    return undefined;
+  }
+
+  return Promise.resolve(result)
+    .then((value) => {
+      markButtonActionStatus(button, 'done');
+      showActionFeedback(value === false ? `${label}：没有变更` : `${label} 已完成`, 'done');
+      return value;
+    })
+    .catch((error) => {
+      markButtonActionStatus(button, 'failed');
+      showActionFeedback(`${label} 失败：${formatActionError(error)}`, 'failed');
+      console.error(error);
+      return undefined;
+    });
+}
+
+function formatActionError(error) {
+  if (error instanceof Error && error.message) return error.message;
+  return String(error || 'Unknown error');
+}
+
+function markButtonActionStatus(button, status) {
+  if (!button) return;
+  button.classList.remove('is-working');
+  button.removeAttribute('aria-busy');
+  delete button.dataset.actionStatus;
+  button.classList.add(status === 'failed' ? 'is-failed' : 'is-done');
+  window.setTimeout(() => {
+    if (!button.isConnected) return;
+    button.classList.remove('is-done', 'is-failed');
+  }, 900);
 }
 
 function onInput(event) {
   const target = event.target;
+  if (target.matches('[data-egress-import]')) return;
   if (!target.matches('[data-path]')) return;
   updateStateFromInput(target);
   queueSave(false);
@@ -883,6 +1030,15 @@ function onChange(event) {
       if (exportGrid) exportGrid.innerHTML = renderExportGrid();
     }
   }
+}
+
+function onPaste(event) {
+  const target = event.target;
+  if (!target.matches('[data-egress-import]')) return;
+  window.setTimeout(() => {
+    if (!target.isConnected) return;
+    importEgressQuickText(target.value, Number(target.dataset.egressImport));
+  }, 0);
 }
 
 function onToggle(event) {
@@ -989,7 +1145,7 @@ function addRule() {
 function duplicateItem(collection, id, prefix) {
   const list = state[collection];
   const index = list.findIndex((item) => item.id === id);
-  if (index < 0) return;
+  if (index < 0) return false;
   const clone = structuredClone(list[index]);
   clone.id = newId(prefix);
   clone.name = `${clone.name} copy`;
@@ -997,29 +1153,31 @@ function duplicateItem(collection, id, prefix) {
   ui.activeItems[collection] = clone.id;
   renderEditors();
   queueSave(true);
+  return true;
 }
 
 function renameItem(collection, id) {
   const list = state[collection];
-  if (!Array.isArray(list)) return;
+  if (!Array.isArray(list)) return false;
   const item = list.find((entry) => entry.id === id);
-  if (!item) return;
+  if (!item) return false;
   const nextName = window.prompt('修改名称', item.name || item.id);
-  if (nextName === null) return;
+  if (nextName === null) return false;
   const name = nextName.trim();
-  if (!name || name === item.name) return;
+  if (!name || name === item.name) return false;
   item.name = name;
   ui.activeItems[collection] = item.id;
   renderEditors();
   queueSave(true);
+  return true;
 }
 
 function removeItem(collection, id) {
   const list = state[collection];
   const index = list.findIndex((item) => item.id === id);
-  if (index < 0) return;
+  if (index < 0) return false;
   const itemName = list[index]?.name || id;
-  if (!window.confirm(`确定删除“${itemName}”吗？`)) return;
+  if (!window.confirm(`确定删除“${itemName}”吗？`)) return false;
   list.splice(index, 1);
   if (collection === 'sources') {
     delete ui.previews[id];
@@ -1039,6 +1197,7 @@ function removeItem(collection, id) {
   }
   renderEditors();
   queueSave(true);
+  return true;
 }
 
 function updateStateFromInput(target) {
@@ -1144,12 +1303,14 @@ async function previewSource(id) {
   if (!source) return;
   ui.previews[id] = { loading: true, nodes: [], warnings: [], errors: [] };
   renderCollection('sources');
+  let previewError = null;
   try {
     ui.previews[id] = await api('/api/parse-source', {
       method: 'POST',
       body: JSON.stringify({ source }),
     });
   } catch (error) {
+    previewError = error;
     ui.previews[id] = {
       format: 'error',
       nodes: [],
@@ -1158,6 +1319,7 @@ async function previewSource(id) {
     };
   }
   renderEditors();
+  if (previewError) throw previewError;
 }
 
 async function testSource(id) {
@@ -1165,12 +1327,14 @@ async function testSource(id) {
   if (!source) return;
   ui.sourceTests[id] = { loading: true, checks: [], warnings: [], errors: [] };
   renderCollection('sources');
+  let testError = null;
   try {
     ui.sourceTests[id] = await api('/api/test-source', {
       method: 'POST',
       body: JSON.stringify({ source }),
     });
   } catch (error) {
+    testError = error;
     ui.sourceTests[id] = {
       status: 'error',
       checks: [],
@@ -1179,6 +1343,7 @@ async function testSource(id) {
     };
   }
   renderEditors();
+  if (testError) throw testError;
 }
 
 async function generateConfig() {
@@ -1205,6 +1370,7 @@ async function generateConfig() {
   } catch (error) {
     ui.generated = null;
     ui.preflight.error = error instanceof Error ? error.message : String(error);
+    throw error;
   } finally {
     ui.preflight.running = false;
     updateGenerateButton();
@@ -1253,8 +1419,10 @@ async function upgradeNow() {
       result: null,
       error: error instanceof Error ? error.message : String(error),
     };
+    throw error;
+  } finally {
+    renderUpgradePanel();
   }
-  renderUpgradePanel();
 }
 
 async function saveNow() {
@@ -1750,18 +1918,305 @@ function normalizeSelectValue(value) {
   return String(value ?? '');
 }
 
+function importEgressFromQuickBox(index) {
+  const input = root.querySelector(`[data-egress-import="${Number(index)}"]`);
+  if (!input || !input.value.trim()) throw new Error('先粘贴一行出口配置。');
+  return importEgressQuickText(input.value, index, { notify: false, throwOnError: true });
+}
+
+function importEgressQuickText(value, index, options = {}) {
+  const parsed = parseEgressQuickInput(value);
+  if (!parsed) {
+    if (options.throwOnError) throw new Error('无法识别这个出口格式。');
+    return false;
+  }
+  const egress = state.egresses[index];
+  if (!egress) {
+    if (options.throwOnError) throw new Error('没有找到这个 Egress。');
+    return false;
+  }
+  applyParsedEgress(egress, parsed);
+  ui.activeItems.egresses = egress.id;
+  queueSave(true);
+  window.setTimeout(() => renderEditors(), IMPORT_RENDER_DELAY_MS);
+  if (options.notify !== false) showActionFeedback('Egress 已识别', 'done');
+  return true;
+}
+
+function parseEgressQuickInput(value) {
+  const line = String(value ?? '')
+    .split(/\r?\n/)
+    .map((entry) => entry.trim())
+    .find(Boolean);
+  if (!line) return null;
+  const normalized = line
+    .replace(/[：]/g, ':')
+    .replace(/[，]/g, ',')
+    .replace(/^["'`]+|["'`]+$/g, '')
+    .trim();
+  return parseEgressUrl(normalized) || parseColonEgress(normalized);
+}
+
+function parseEgressUrl(value) {
+  if (!/^[a-z][a-z0-9+.-]*:\/\//i.test(value)) return null;
+  let url;
+  try {
+    url = new URL(value);
+  } catch {
+    return null;
+  }
+  const scheme = url.protocol.replace(':', '').toLowerCase();
+  const protocol = normalizeImportProtocol(scheme);
+  const port = parseImportPort(url.port || defaultImportPort(scheme));
+  const server = stripHostBrackets(url.hostname);
+  if (!protocol || !server || !port) return null;
+
+  const parsed = {
+    protocol,
+    server,
+    port,
+    tlsEnabled: scheme === 'https' || ['trojan', 'hysteria2', 'tuic'].includes(protocol),
+  };
+  const nodeName = decodeUrlPart(url.hash.replace(/^#/, ''));
+  if (nodeName) parsed.name = nodeName;
+  assignImportedCredentials(parsed, protocol, decodeUrlPart(url.username), decodeUrlPart(url.password));
+  applyImportedUrlParams(parsed, url, scheme);
+  return parsed;
+}
+
+function parseColonEgress(value) {
+  const parts = value.split(':').map((part) => part.trim());
+  if (parts.length < 2) return null;
+  let username = '';
+  let password = '';
+  if (parts.length >= 4) {
+    password = parts.pop();
+    username = parts.pop();
+  }
+  const port = parseImportPort(parts.pop());
+  const hostInfo = parseImportHost(parts.join(':'));
+  if (!hostInfo.server || !port) return null;
+  const protocol = hostInfo.protocol || 'http';
+  const parsed = {
+    protocol,
+    server: hostInfo.server,
+    port,
+    tlsEnabled: Boolean(hostInfo.tlsEnabled || ['trojan', 'hysteria2', 'tuic'].includes(protocol)),
+  };
+  assignImportedCredentials(parsed, protocol, username, password);
+  return parsed;
+}
+
+function parseImportHost(value) {
+  let host = String(value ?? '').trim();
+  let protocol = '';
+  let tlsEnabled = false;
+  const schemeMatch = host.match(/^([a-z][a-z0-9+.-]*):\/\/(.+)$/i);
+  if (schemeMatch) {
+    const scheme = schemeMatch[1].toLowerCase();
+    protocol = normalizeImportProtocol(scheme);
+    tlsEnabled = scheme === 'https';
+    host = schemeMatch[2];
+  }
+  if (host.includes('@')) host = host.slice(host.lastIndexOf('@') + 1);
+  host = host.replace(/[/?#].*$/, '').replace(/^\/+/, '');
+  return { protocol, server: stripHostBrackets(host), tlsEnabled };
+}
+
+function normalizeImportProtocol(value) {
+  const protocol = String(value ?? '').toLowerCase();
+  if (protocol === 'https') return 'http';
+  if (['socks', 'socks4', 'socks5'].includes(protocol)) return 'socks';
+  if (['ss', 'shadowsocks'].includes(protocol)) return 'shadowsocks';
+  if (['hy2', 'hysteria2'].includes(protocol)) return 'hysteria2';
+  return PROTOCOL_OPTIONS.includes(protocol) ? protocol : '';
+}
+
+function defaultImportPort(scheme) {
+  if (scheme === 'http') return 80;
+  if (scheme === 'socks' || scheme === 'socks4' || scheme === 'socks5') return 1080;
+  if (scheme === 'shadowsocks' || scheme === 'ss') return 8388;
+  return ['https', 'trojan', 'hysteria2', 'hy2', 'tuic'].includes(scheme) ? 443 : '';
+}
+
+function assignImportedCredentials(parsed, protocol, username, password) {
+  if (protocol === 'http' || protocol === 'socks') {
+    parsed.username = username || '';
+    parsed.password = password || '';
+    return;
+  }
+  if (protocol === 'shadowsocks') {
+    const decoded = !password && username ? decodeBase64Url(username) : '';
+    const decodedParts = decoded ? splitOnce(decoded, ':') : null;
+    parsed.method = decodedParts?.[0] || username || '';
+    parsed.password = decodedParts?.[1] || password || '';
+    return;
+  }
+  if (protocol === 'vmess' || protocol === 'vless') {
+    parsed.uuid = username || '';
+    return;
+  }
+  if (protocol === 'trojan' || protocol === 'hysteria2') {
+    parsed.password = username || password || '';
+    return;
+  }
+  if (protocol === 'tuic') {
+    parsed.uuid = username || '';
+    parsed.password = password || '';
+  }
+}
+
+function applyImportedUrlParams(parsed, url, scheme) {
+  const params = url.searchParams;
+  const fieldMap = [
+    ['security', ['security']],
+    ['flow', ['flow']],
+    ['packetEncoding', ['packetEncoding', 'packet-encoding', 'packet_encoding']],
+    ['sni', ['sni', 'peer', 'servername', 'serverName']],
+    ['transportType', ['type', 'transport', 'network']],
+    ['path', ['path']],
+    ['host', ['host']],
+    ['serviceName', ['serviceName', 'service_name']],
+    ['alpn', ['alpn']],
+    ['fingerprint', ['fp', 'fingerprint']],
+    ['realityPublicKey', ['pbk', 'publicKey', 'public_key']],
+    ['realityShortId', ['sid', 'shortId', 'short_id']],
+    ['realitySpiderX', ['spx', 'spiderX', 'spider_x']],
+    ['plugin', ['plugin']],
+    ['pluginOptions', ['pluginOpts', 'plugin-opts', 'plugin_opts']],
+    ['obfs', ['obfs']],
+    ['obfsPassword', ['obfsPassword', 'obfs-password', 'obfs_password']],
+    ['congestionControl', ['congestionControl', 'congestion_control']],
+    ['udpRelayMode', ['udpRelayMode', 'udp_relay_mode']],
+  ];
+  fieldMap.forEach(([field, names]) => {
+    const value = readUrlParam(params, names);
+    if (value) parsed[field] = value;
+  });
+  const tlsValue = readUrlParam(params, ['tls']);
+  const security = parsed.security || '';
+  if (
+    scheme === 'https' ||
+    ['tls', 'reality'].includes(security.toLowerCase()) ||
+    ['1', 'true', 'yes', 'on'].includes(String(tlsValue).toLowerCase())
+  ) {
+    parsed.tlsEnabled = true;
+  }
+  const allowInsecure = readUrlParam(params, ['allowInsecure', 'allow_insecure', 'skip-cert-verify']);
+  if (allowInsecure) parsed.allowInsecure = ['1', 'true', 'yes', 'on'].includes(String(allowInsecure).toLowerCase());
+}
+
+function applyParsedEgress(egress, parsed) {
+  if (parsed.name && (!egress.name || /^Egress \d+$/i.test(egress.name))) {
+    egress.name = parsed.name;
+  }
+  [
+    'protocol',
+    'server',
+    'port',
+    'username',
+    'password',
+    'uuid',
+    'method',
+    'security',
+    'flow',
+    'packetEncoding',
+    'tlsEnabled',
+    'allowInsecure',
+    'sni',
+    'transportType',
+    'path',
+    'host',
+    'serviceName',
+    'alpn',
+    'fingerprint',
+    'realityPublicKey',
+    'realityShortId',
+    'realitySpiderX',
+    'plugin',
+    'pluginOptions',
+    'obfs',
+    'obfsPassword',
+    'congestionControl',
+    'udpRelayMode',
+  ].forEach((field) => {
+    if (Object.prototype.hasOwnProperty.call(parsed, field)) {
+      egress[field] = parsed[field];
+    }
+  });
+}
+
+function parseImportPort(value) {
+  if (value === '' || value == null) return null;
+  const port = Number(value);
+  return Number.isInteger(port) && port >= 1 && port <= 65535 ? port : null;
+}
+
+function stripHostBrackets(value) {
+  return String(value ?? '').trim().replace(/^\[(.*)]$/, '$1');
+}
+
+function decodeUrlPart(value) {
+  try {
+    return decodeURIComponent(String(value ?? '')).trim();
+  } catch {
+    return String(value ?? '').trim();
+  }
+}
+
+function decodeBase64Url(value) {
+  try {
+    const normalized = String(value).replace(/-/g, '+').replace(/_/g, '/');
+    const padded = normalized.padEnd(Math.ceil(normalized.length / 4) * 4, '=');
+    const binary = atob(padded);
+    const bytes = Uint8Array.from(binary, (char) => char.charCodeAt(0));
+    return new TextDecoder().decode(bytes);
+  } catch {
+    return '';
+  }
+}
+
+function splitOnce(value, delimiter) {
+  const index = String(value).indexOf(delimiter);
+  if (index < 0) return null;
+  return [String(value).slice(0, index), String(value).slice(index + delimiter.length)];
+}
+
+function readUrlParam(params, names) {
+  const wanted = new Set(names.map((name) => name.toLowerCase()));
+  for (const [key, value] of params.entries()) {
+    if (wanted.has(key.toLowerCase())) return value;
+  }
+  return '';
+}
+
 function copyCurrentConfig() {
-  if (!ui.generated?.config) return;
-  navigator.clipboard.writeText(JSON.stringify(ui.generated.config, null, 2)).catch(() => {});
+  if (!ui.generated?.config) throw new Error('请先生成配置。');
+  return copyText(JSON.stringify(ui.generated.config, null, 2));
 }
 
 function copyText(value) {
-  return navigator.clipboard.writeText(String(value ?? '')).catch(() => {});
+  const text = String(value ?? '');
+  if (navigator.clipboard?.writeText) return navigator.clipboard.writeText(text);
+  const textarea = document.createElement('textarea');
+  textarea.value = text;
+  textarea.setAttribute('readonly', '');
+  textarea.style.position = 'fixed';
+  textarea.style.left = '-9999px';
+  textarea.style.top = '0';
+  document.body.appendChild(textarea);
+  textarea.focus();
+  textarea.select();
+  const copied = document.execCommand('copy');
+  textarea.remove();
+  if (!copied) throw new Error('剪贴板不可用。');
+  return Promise.resolve();
 }
 
 function copyRouteOutput(index) {
   const output = Array.from(getRouteOutputMap().values()).find((item) => item.index === index);
-  return copyText(output?.code || '');
+  if (!output?.code) throw new Error('请先生成这个链路输出。');
+  return copyText(output.code);
 }
 
 function getExportUrl(format, download = false) {
