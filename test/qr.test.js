@@ -1,15 +1,10 @@
 import assert from 'node:assert/strict';
-import { Buffer } from 'node:buffer';
 import test from 'node:test';
 import { getQrPayload } from '../src/qr.js';
 
-test('wraps a Shadowrocket subscription URL in an add/sub deep link with standard base64', () => {
+test('keeps Shadowrocket QR payload as the subscription URL', () => {
   const url = 'https://example.com/api/export/shadowrocket';
-  const payload = getQrPayload('shadowrocket', url);
-  assert.match(payload, /^shadowrocket:\/\/add\/sub:\/\//);
-  const encoded = payload.slice('shadowrocket://add/sub://'.length).split('?')[0];
-  assert.equal(Buffer.from(encoded, 'base64').toString('utf8'), url);
-  assert.match(payload, /[?&]remark=Home%20Relay%20Studio(?:&|$)/);
+  assert.equal(getQrPayload('shadowrocket', url), url);
 });
 
 test('keeps other QR payloads unchanged', () => {
