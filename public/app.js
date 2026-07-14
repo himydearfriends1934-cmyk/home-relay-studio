@@ -161,27 +161,53 @@ function renderEntityCards(collection, label, items, selectedId, summarizeItem) 
         .map((item, index) => {
           const selected = item.id === selectedId;
           const status = item.enabled ? 'on' : 'off';
+          const name = item.name || item.id;
+          const tooltip = `${name} | ${summarizeItem(item)}`;
           return `
-            <button
-              type="button"
+            <div
               class="entity-card ${selected ? 'active' : ''} ${item.enabled ? '' : 'is-off'}"
-              data-select-collection="${escapeHtml(collection)}"
-              data-id="${escapeHtml(item.id)}"
-              role="tab"
-              aria-selected="${selected ? 'true' : 'false'}"
             >
-              <span class="entity-card-top">
-                <span>${escapeHtml(label)} ${index + 1}</span>
-                <span class="entity-dot ${item.enabled ? 'ok' : 'off'}">${escapeHtml(status)}</span>
-              </span>
-              <span class="entity-card-title">${escapeHtml(item.name || item.id)}</span>
-              <span class="entity-card-meta">${escapeHtml(summarizeItem(item))}</span>
-            </button>
+              <button
+                type="button"
+                class="entity-card-select"
+                data-select-collection="${escapeHtml(collection)}"
+                data-id="${escapeHtml(item.id)}"
+                role="tab"
+                aria-selected="${selected ? 'true' : 'false'}"
+                title="${escapeHtml(tooltip)}"
+              >
+                <span class="entity-card-icon" aria-hidden="true">${renderEntityIcon(collection, item)}</span>
+                <span class="entity-card-title">${escapeHtml(name)}</span>
+                <span class="entity-card-index">${escapeHtml(label)} ${index + 1}</span>
+              </button>
+              <span class="entity-state-dot ${item.enabled ? 'ok' : 'off'}" title="${escapeHtml(status)}"></span>
+              <button
+                type="button"
+                class="entity-card-rename"
+                data-action="rename-entity"
+                data-collection="${escapeHtml(collection)}"
+                data-id="${escapeHtml(item.id)}"
+                aria-label="Rename ${escapeHtml(name)}"
+                title="Rename"
+              >&#9998;</button>
+            </div>
           `;
         })
         .join('')}
     </div>
   `;
+}
+
+function renderEntityIcon(collection, item) {
+  if (collection === 'sources') {
+    return item.kind === 'text'
+      ? '<svg viewBox="0 0 24 24"><path d="M7 3h7l4 4v14H7z"/><path d="M14 3v5h5M10 12h5M10 16h5"/></svg>'
+      : '<svg viewBox="0 0 24 24"><path d="M10 13a5 5 0 0 0 7.1 0l2-2a5 5 0 0 0-7.1-7.1l-1.1 1.1"/><path d="M14 11a5 5 0 0 0-7.1 0l-2 2A5 5 0 0 0 12 20.1l1.1-1.1"/></svg>';
+  }
+  if (collection === 'egresses') {
+    return '<svg viewBox="0 0 24 24"><path d="M3 11.5 12 4l9 7.5"/><path d="M5.5 10v10h13V10M9 20v-6h6v6"/><path d="M16 7h5m-2-2 2 2-2 2"/></svg>';
+  }
+  return '<svg viewBox="0 0 24 24"><path d="M5 4v5a3 3 0 0 0 3 3h8"/><path d="m13 9 3 3-3 3"/><path d="M5 20v-3a3 3 0 0 1 3-3h8"/><circle cx="5" cy="4" r="2"/></svg>';
 }
 
 function summarizeSourceCard(source) {
@@ -456,6 +482,7 @@ function onClick(event) {
   if (action === 'duplicate-source') duplicateItem('sources', id, 'src');
   if (action === 'duplicate-egress') duplicateItem('egresses', id, 'eg');
   if (action === 'duplicate-rule') duplicateItem('rules', id, 'rule');
+  if (action === 'rename-entity') renameItem(button.dataset.collection, id);
   if (action === 'delete-source') removeItem('sources', id);
   if (action === 'delete-egress') removeItem('egresses', id);
   if (action === 'delete-rule') removeItem('rules', id);
@@ -577,6 +604,21 @@ function duplicateItem(collection, id, prefix) {
   clone.name = `${clone.name} copy`;
   list.splice(index + 1, 0, clone);
   ui.activeItems[collection] = clone.id;
+  renderEditors();
+  queueSave(true);
+}
+
+function renameItem(collection, id) {
+  const list = state[collection];
+  if (!Array.isArray(list)) return;
+  const item = list.find((entry) => entry.id === id);
+  if (!item) return;
+  const nextName = window.prompt('Rename item', item.name || item.id);
+  if (nextName === null) return;
+  const name = nextName.trim();
+  if (!name || name === item.name) return;
+  item.name = name;
+  ui.activeItems[collection] = item.id;
   renderEditors();
   queueSave(true);
 }

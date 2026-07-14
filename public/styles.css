@@ -202,36 +202,45 @@ textarea.code {
 }
 
 .config-section {
+  display: flex;
+  flex-direction: column;
+  height: clamp(520px, 65vh, 680px);
+  min-width: 0;
   padding: 16px;
 }
 
 .config-section .section-head {
+  flex: 0 0 auto;
   padding-bottom: 12px;
   border-bottom: 1px solid var(--line);
 }
 
+.config-section .entity-list {
+  flex: 1;
+  min-height: 0;
+}
+
 .entity-deck {
   display: grid;
+  grid-template-rows: auto minmax(0, 1fr);
   gap: 14px;
+  height: 100%;
+  min-height: 0;
 }
 
 .entity-card-row {
-  display: flex;
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(76px, 1fr));
   gap: 8px;
-  overflow-x: auto;
-  padding-bottom: 4px;
 }
 
 .entity-card {
-  display: grid;
-  gap: 4px;
-  flex: 0 0 152px;
-  text-align: left;
-  align-content: start;
+  position: relative;
+  min-width: 0;
   background: #fff;
-  border-color: var(--line);
-  min-height: 78px;
-  padding: 9px 10px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  overflow: hidden;
 }
 
 .entity-card.active {
@@ -244,49 +253,101 @@ textarea.code {
   background: #f8fafc;
 }
 
-.entity-card-top {
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-  gap: 8px;
-  color: var(--muted);
-  font-size: 11px;
+.entity-card-select {
+  display: grid;
+  justify-items: center;
+  align-content: center;
+  gap: 5px;
+  width: 100%;
+  min-height: 88px;
+  padding: 10px 7px 8px;
+  color: var(--text);
+  background: transparent;
+  border: 0;
+  border-radius: 0;
+  text-align: center;
 }
 
-.entity-dot {
-  border-radius: 999px;
-  border: 1px solid var(--line);
-  padding: 0.05rem 0.35rem;
-  background: #fff;
+.entity-card-select:hover {
+  background: rgba(15, 118, 110, 0.06);
 }
 
-.entity-dot.ok {
+.entity-card-icon {
+  display: grid;
+  place-items: center;
+  width: 34px;
+  height: 34px;
   color: var(--accent);
-  border-color: #bfe7e2;
+  background: var(--accent-soft);
+  border-radius: 10px;
 }
 
-.entity-dot.off {
-  color: var(--muted);
-}
-
-.entity-card-title,
-.entity-card-meta {
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
+.entity-card-icon svg {
+  width: 21px;
+  height: 21px;
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 1.8;
+  stroke-linecap: round;
+  stroke-linejoin: round;
 }
 
 .entity-card-title {
+  width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 12px;
   font-weight: 700;
 }
 
-.entity-card-meta {
+.entity-card-index {
   color: var(--muted);
+  font-size: 10px;
+}
+
+.entity-state-dot {
+  position: absolute;
+  top: 6px;
+  right: 6px;
+  width: 7px;
+  height: 7px;
+  box-sizing: content-box;
+  background: #94a3b8;
+  border: 2px solid #fff;
+  border-radius: 999px;
+}
+
+.entity-state-dot.ok {
+  background: var(--accent);
+}
+
+.entity-card-rename {
+  position: absolute;
+  right: 3px;
+  bottom: 3px;
+  width: 22px;
+  height: 22px;
+  padding: 0;
+  color: var(--muted);
+  background: rgba(255, 255, 255, 0.9);
+  border: 0;
+  border-radius: 6px;
   font-size: 12px;
+  line-height: 1;
+}
+
+.entity-card-rename:hover,
+.entity-card-rename:focus-visible {
+  color: var(--accent);
+  background: #fff;
 }
 
 .entity-editor {
+  overflow: auto;
   min-width: 0;
+  min-height: 0;
+  padding-right: 2px;
 }
 
 .entity {
