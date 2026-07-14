@@ -479,6 +479,7 @@ function renderEgress(egress, index) {
 function renderRule(rule, index) {
   const sourceOptions = state.sources.map((source) => ({ value: source.id, label: source.name, meta: source.id }));
   const egressOptions = state.egresses.map((egress) => ({ value: egress.id, label: egress.name, meta: `${egress.protocol} ${egress.id}` }));
+  const protocolLocks = getRuleProtocolLocks(rule, index);
   return `
     <div class="entity" data-kind="rule" data-id="${rule.id}">
       <div class="entity-summary">
@@ -495,7 +496,7 @@ function renderRule(rule, index) {
           ${textField(`rules.${index}.name`, '名称', rule.name)}
           ${checkboxField(`rules.${index}.enabled`, '启用', rule.enabled)}
           ${pickerField(`rules.${index}.match.sourceIds`, '来源', sourceOptions, rule.match?.sourceIds || [], 'wide')}
-          ${protocolChecklistField(`rules.${index}.match.protocols`, '协议筛选（空为全部）', rule.match?.protocols || [], 'wide')}
+          ${protocolChecklistField(`rules.${index}.match.protocols`, '协议筛选', rule.match?.protocols || [], 'wide', protocolLocks)}
           ${pickerField(`rules.${index}.targets`, '目标出口', egressOptions, rule.targets || [], 'wide')}
         </div>
         <details class="advanced" data-details-key="rule:${escapeHtml(rule.id)}:advanced" ${detailsOpen(`rule:${rule.id}:advanced`)}>
@@ -512,6 +513,31 @@ function renderRule(rule, index) {
       </div>
     </div>
   `;
+}
+
+function getRuleProtocolLocks(rule, ruleIndex) {
+  const locks = {};
+  for (const protocol of PROTOCOL_OPTIONS) {
+    const owner = state.rules.find((candidate, index) => {
+      if (index === ruleIndex || candidate.enabled === false) return false;
+      if (!rulesOverlapSources(rule, candidate)) return false;
+      const protocols = candidate.match?.protocols || [];
+      return protocols.length === 0 || protocols.includes(protocol);
+    });
+    if (owner) {
+      locks[protocol] = {
+        ruleName: owner.name || owner.id,
+      };
+    }
+  }
+  return locks;
+}
+
+function rulesOverlapSources(a, b) {
+  const aSources = a.match?.sourceIds || [];
+  const bSources = b.match?.sourceIds || [];
+  if (aSources.length === 0 || bSources.length === 0) return true;
+  return aSources.some((id) => bSources.includes(id));
 }
 
 function renderMoreActions(kind, id) {
@@ -844,7 +870,7 @@ function addRule() {
     priority: 100,
     targetMode: 'replace',
     stop: true,
-    match: { sourceIds: defaultSourceIds, sourceNameRegex: '', nodeNameRegex: '', protocols: [] },
+    match: { sourceIds: defaultSourceIds, sourceNameRegex: '', nodeNameRegex: '', protocols: PROTOCOL_OPTIONS.slice() },
     targets: defaultTargets,
     notes: '',
   };
@@ -959,7 +985,13 @@ function updateArrayFromInput(target) {
   const path = target.dataset.arrayPath;
   const value = target.dataset.arrayValue;
   const list = readPath(state, path);
-  const next = Array.isArray(list) ? list.slice() : [];
+  const allValues = splitCsvValue(target.dataset.arrayAllValues || '');
+  const usesImplicitAll = target.dataset.arrayImplicitAll === 'true';
+  const next = usesImplicitAll && allValues.length && (!Array.isArray(list) || list.length === 0)
+    ? allValues.slice()
+    : Array.isArray(list)
+      ? list.slice()
+      : [];
   if (target.checked) {
     if (!next.includes(value)) next.push(value);
   } else {
@@ -1563,24 +1595,38 @@ function pickerField(path, label, options, selectedValues, extraClass = '') {
   `;
 }
 
-function protocolChecklistField(path, label, selectedValues, extraClass = '') {
+function protocolChecklistField(path, label, selectedValues, extraClass = '', locks = {}) {
   const cls = extraClass ? `field ${extraClass}` : 'field';
   const selected = new Set((selectedValues || []).map((value) => String(value)));
+  const implicitAll = selected.size === 0;
+  const allValues = PROTOCOL_OPTIONS.join(',');
   return `
     <div class="${cls}">
       <span>${escapeHtml(label)}</span>
       <div class="protocol-check-list">
         ${PROTOCOL_OPTIONS.map((protocol) => {
-          const checked = selected.has(protocol);
+          const checked = implicitAll || selected.has(protocol);
+          const lock = locks[protocol];
+          const disabled = Boolean(lock && !checked);
+          const title = lock ? `Used by ${lock.ruleName}` : '';
           return `
-            <label class="protocol-check-item ${checked ? 'checked' : ''}">
-              <input data-array-path="${escapeHtml(path)}" data-array-value="${escapeHtml(protocol)}" type="checkbox" ${checked ? 'checked' : ''} />
+            <label class="protocol-check-item ${checked ? 'checked' : ''} ${disabled ? 'disabled' : ''}" title="${escapeHtml(title)}">
+              <input
+                data-array-path="${escapeHtml(path)}"
+                data-array-value="${escapeHtml(protocol)}"
+                data-array-implicit-all="true"
+                data-array-all-values="${escapeHtml(allValues)}"
+                type="checkbox"
+                ${checked ? 'checked' : ''}
+                ${disabled ? 'disabled' : ''}
+              />
               <span class="protocol-check-name">${escapeHtml(PROTOCOL_LABELS[protocol] || protocol)}</span>
-              <small>${escapeHtml(protocol)}</small>
+              <small>${escapeHtml(lock ? `used: ${lock.ruleName}` : protocol)}</small>
             </label>
           `;
         }).join('')}
       </div>
+      <small class="field-hint">Checked protocols are exported for this rule. A protocol already used by another overlapping source rule is locked here; choose multiple target egresses in one rule if you intentionally want the same protocol to go to multiple homes.</small>
     </div>
   `;
 }

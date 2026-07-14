@@ -818,6 +818,16 @@ textarea.code {
   border-color: var(--accent);
 }
 
+.protocol-check-item.disabled {
+  color: #94a3b8;
+  background: #f8fafc;
+  cursor: not-allowed;
+}
+
+.protocol-check-item.disabled input {
+  cursor: not-allowed;
+}
+
 .protocol-check-item input {
   width: 16px;
   height: 16px;
@@ -831,6 +841,14 @@ textarea.code {
 .protocol-check-item small {
   color: var(--muted);
   font-size: 11px;
+}
+
+.field-hint {
+  display: block;
+  margin-top: 7px;
+  color: var(--muted);
+  font-size: 12px;
+  line-height: 1.4;
 }
 
 .qr-panel {

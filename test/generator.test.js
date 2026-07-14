@@ -251,3 +251,47 @@ test('source-scoped protocol rules block default fallback for unselected protoco
   assert.equal(result.assignments[0].node.protocol, 'vless');
   assert.ok(result.assignmentWarnings.some((warning) => warning.nodeName === 'trojan-node'));
 });
+
+test('warns when overlapping rules select the same source protocol', () => {
+  const state = normalizeState({
+    sources: [{ id: 'src-1', name: 'Mixed source', kind: 'text', enabled: true }],
+    egresses: [
+      { id: 'eg-fr', name: 'France', protocol: 'socks', server: 'fr.example.com', port: 1080, enabled: true },
+      { id: 'eg-us', name: 'US', protocol: 'socks', server: 'us.example.com', port: 1080, enabled: true },
+    ],
+    rules: [
+      {
+        id: 'rule-fr',
+        name: 'VLESS to France',
+        enabled: true,
+        priority: 100,
+        targetMode: 'replace',
+        stop: true,
+        match: { sourceIds: ['src-1'], protocols: ['vless'] },
+        targets: ['eg-fr'],
+      },
+      {
+        id: 'rule-us',
+        name: 'VLESS to US',
+        enabled: true,
+        priority: 90,
+        targetMode: 'replace',
+        stop: true,
+        match: { sourceIds: ['src-1'], protocols: ['vless'] },
+        targets: ['eg-us'],
+      },
+    ],
+  });
+  const result = generateSingBoxConfig(state, [
+    {
+      source: state.sources[0],
+      nodes: [
+        { name: 'vless-node', protocol: 'vless', server: 'front.example.com', port: 443, uuid: '11111111-1111-1111-1111-111111111111' },
+      ],
+      warnings: [],
+      errors: [],
+    },
+  ]);
+
+  assert.ok(result.assignmentWarnings.some((warning) => warning.type === 'rule-protocol-overlap'));
+});

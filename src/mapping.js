@@ -1,3 +1,4 @@
+import { SOURCE_NODE_PROTOCOLS } from './constants.js';
 import { escapeRegExp, normalizeName, sanitizeTag, uniqueBy } from './utils.js';
 
 export function buildAssignments(state, parsedSources) {
@@ -31,6 +32,7 @@ export function buildAssignments(state, parsedSources) {
   const rules = [...state.rules]
     .filter((rule) => rule.enabled)
     .sort((a, b) => b.priority - a.priority);
+  warnings.push(...findRuleProtocolOverlaps(rules, parsedSources));
 
   const assignments = [];
   const usedTags = new Set();
@@ -119,6 +121,55 @@ function ruleTargetsSource(rule, source) {
   if (!rule.enabled || !Array.isArray(rule.targets) || rule.targets.length === 0) return false;
   const sourceIds = Array.isArray(rule.match?.sourceIds) ? rule.match.sourceIds : [];
   return sourceIds.length === 0 || sourceIds.includes(source.id);
+}
+
+function findRuleProtocolOverlaps(rules, parsedSources) {
+  const warnings = [];
+  for (let i = 0; i < rules.length; i += 1) {
+    for (let j = i + 1; j < rules.length; j += 1) {
+      const first = rules[i];
+      const second = rules[j];
+      if (!Array.isArray(first.targets) || first.targets.length === 0) continue;
+      if (!Array.isArray(second.targets) || second.targets.length === 0) continue;
+      const sourceIds = overlappingSourceIds(first, second, parsedSources);
+      if (sourceIds.length === 0) continue;
+      const protocols = overlappingProtocols(first, second);
+      if (protocols.length === 0) continue;
+      warnings.push({
+        type: 'rule-protocol-overlap',
+        ruleName: first.name,
+        message: `Rules "${first.name}" and "${second.name}" both select ${formatProtocolList(protocols)} for overlapping sources. Put multiple target egresses in one rule if you intentionally want duplicate output.`,
+      });
+    }
+  }
+  return warnings;
+}
+
+function overlappingSourceIds(first, second, parsedSources) {
+  const allSourceIds = parsedSources.map((bundle) => bundle.source.id).filter(Boolean);
+  const firstIds = Array.isArray(first.match?.sourceIds) && first.match.sourceIds.length > 0
+    ? first.match.sourceIds
+    : allSourceIds;
+  const secondIds = Array.isArray(second.match?.sourceIds) && second.match.sourceIds.length > 0
+    ? second.match.sourceIds
+    : allSourceIds;
+  return firstIds.filter((id) => secondIds.includes(id));
+}
+
+function overlappingProtocols(first, second) {
+  const allProtocols = Array.from(SOURCE_NODE_PROTOCOLS);
+  const firstProtocols = Array.isArray(first.match?.protocols) && first.match.protocols.length > 0
+    ? first.match.protocols
+    : allProtocols;
+  const secondProtocols = Array.isArray(second.match?.protocols) && second.match.protocols.length > 0
+    ? second.match.protocols
+    : allProtocols;
+  return firstProtocols.filter((protocol) => secondProtocols.includes(protocol));
+}
+
+function formatProtocolList(protocols) {
+  if (protocols.length > 3) return `${protocols.slice(0, 3).join(', ')} and ${protocols.length - 3} more protocols`;
+  return protocols.join(', ');
 }
 
 export function ruleMatchesNode(rule, node, source) {
