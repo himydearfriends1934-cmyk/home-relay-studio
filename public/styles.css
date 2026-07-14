@@ -194,6 +194,80 @@ textarea.code {
   gap: 12px;
 }
 
+.entity-card-row {
+  display: flex;
+  gap: 8px;
+  overflow-x: auto;
+  padding-bottom: 2px;
+}
+
+.entity-card {
+  display: grid;
+  gap: 4px;
+  min-width: 168px;
+  max-width: 220px;
+  text-align: left;
+  align-content: start;
+  background: #fff;
+  border-color: var(--line);
+  padding: 8px 10px;
+}
+
+.entity-card.active {
+  background: var(--accent-soft);
+  border-color: var(--accent);
+  box-shadow: inset 0 0 0 1px var(--accent);
+}
+
+.entity-card.is-off:not(.active) {
+  background: #f8fafc;
+}
+
+.entity-card-top {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 8px;
+  color: var(--muted);
+  font-size: 11px;
+}
+
+.entity-dot {
+  border-radius: 999px;
+  border: 1px solid var(--line);
+  padding: 0.05rem 0.35rem;
+  background: #fff;
+}
+
+.entity-dot.ok {
+  color: var(--accent);
+  border-color: #bfe7e2;
+}
+
+.entity-dot.off {
+  color: var(--muted);
+}
+
+.entity-card-title,
+.entity-card-meta {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.entity-card-title {
+  font-weight: 700;
+}
+
+.entity-card-meta {
+  color: var(--muted);
+  font-size: 12px;
+}
+
+.entity-editor {
+  min-width: 0;
+}
+
 .entity {
   border: 1px solid var(--line);
   border-radius: 8px;

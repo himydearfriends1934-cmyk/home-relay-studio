@@ -22,6 +22,11 @@ const ui = {
   previews: {},
   exportFormat: 'sing-box',
   exportView: 'link',
+  activeItems: {
+    sources: '',
+    egresses: '',
+    rules: '',
+  },
   upgrade: {
     running: false,
     result: null,
@@ -120,19 +125,93 @@ function renderShell() {
 
 function renderEditors() {
   root.querySelector('#source-list').innerHTML = state.sources.length
-    ? state.sources.map((source, index) => renderSource(source, index)).join('')
+    ? renderEntityDeck('sources', 'Source', state.sources, renderSource, summarizeSourceCard)
     : emptyState('No sources yet.', 'Add one raw subscription URL or paste a payload.');
 
   root.querySelector('#egress-list').innerHTML = state.egresses.length
-    ? state.egresses.map((egress, index) => renderEgress(egress, index)).join('')
+    ? renderEntityDeck('egresses', 'Egress', state.egresses, renderEgress, summarizeEgressCard)
     : emptyState('No egresses yet.', 'Add one or more home broadband exits.');
 
   root.querySelector('#rule-list').innerHTML = state.rules.length
-    ? state.rules.map((rule, index) => renderRule(rule, index)).join('')
+    ? renderEntityDeck('rules', 'Rule', state.rules, renderRule, summarizeRuleCard)
     : emptyState('No rules yet.', 'Use rules to map protocols or node names to egress IDs.');
 
   root.querySelector('#export-grid').innerHTML = renderExportGrid();
   updateStats();
+}
+
+function renderEntityDeck(collection, label, items, renderItem, summarizeItem) {
+  const selectedId = ensureActiveItem(collection);
+  const selectedIndex = Math.max(0, items.findIndex((item) => item.id === selectedId));
+  const selectedItem = items[selectedIndex];
+  return `
+    ${renderEntityCards(collection, label, items, selectedItem.id, summarizeItem)}
+    <div class="entity-editor">
+      ${renderItem(selectedItem, selectedIndex)}
+    </div>
+  `;
+}
+
+function renderEntityCards(collection, label, items, selectedId, summarizeItem) {
+  return `
+    <div class="entity-card-row" role="tablist" aria-label="${escapeHtml(label)} selector">
+      ${items
+        .map((item, index) => {
+          const selected = item.id === selectedId;
+          const status = item.enabled ? 'on' : 'off';
+          return `
+            <button
+              type="button"
+              class="entity-card ${selected ? 'active' : ''} ${item.enabled ? '' : 'is-off'}"
+              data-select-collection="${escapeHtml(collection)}"
+              data-id="${escapeHtml(item.id)}"
+              role="tab"
+              aria-selected="${selected ? 'true' : 'false'}"
+            >
+              <span class="entity-card-top">
+                <span>${escapeHtml(label)} ${index + 1}</span>
+                <span class="entity-dot ${item.enabled ? 'ok' : 'off'}">${escapeHtml(status)}</span>
+              </span>
+              <span class="entity-card-title">${escapeHtml(item.name || item.id)}</span>
+              <span class="entity-card-meta">${escapeHtml(summarizeItem(item))}</span>
+            </button>
+          `;
+        })
+        .join('')}
+    </div>
+  `;
+}
+
+function summarizeSourceCard(source) {
+  return [source.kind || 'url', source.formatHint || 'auto', source.id].filter(Boolean).join(' | ');
+}
+
+function summarizeEgressCard(egress) {
+  const endpoint = egress.server ? `${egress.server}${egress.port ? `:${egress.port}` : ''}` : 'unset';
+  return [egress.protocol || 'http', endpoint].filter(Boolean).join(' | ');
+}
+
+function summarizeRuleCard(rule) {
+  const targetCount = Array.isArray(rule.targets) ? rule.targets.length : 0;
+  return [`priority ${rule.priority ?? 0}`, rule.targetMode || 'replace', `${targetCount} target${targetCount === 1 ? '' : 's'}`].join(' | ');
+}
+
+function ensureActiveItem(collection) {
+  const items = Array.isArray(state[collection]) ? state[collection] : [];
+  if (items.length === 0) {
+    ui.activeItems[collection] = '';
+    return '';
+  }
+  if (!items.some((item) => item.id === ui.activeItems[collection])) {
+    ui.activeItems[collection] = items[0].id;
+  }
+  return ui.activeItems[collection];
+}
+
+function setActiveItem(collection, id) {
+  const items = Array.isArray(state[collection]) ? state[collection] : [];
+  if (!items.some((item) => item.id === id)) return;
+  ui.activeItems[collection] = id;
 }
 
 function renderSource(source, index) {
@@ -350,6 +429,13 @@ function onClick(event) {
     return;
   }
 
+  const entityCard = event.target.closest('[data-select-collection]');
+  if (entityCard) {
+    setActiveItem(entityCard.dataset.selectCollection, entityCard.dataset.id);
+    renderEditors();
+    return;
+  }
+
   const tabButton = event.target.closest('[data-view]');
   if (tabButton) {
     ui.mode = tabButton.dataset.view;
@@ -405,7 +491,7 @@ function onChange(event) {
 }
 
 function addSource() {
-  state.sources.push({
+  const source = {
     id: newId('src'),
     name: `Source ${state.sources.length + 1}`,
     kind: 'url',
@@ -415,13 +501,15 @@ function addSource() {
     enabled: true,
     notes: '',
     headersJson: '',
-  });
+  };
+  state.sources.push(source);
+  ui.activeItems.sources = source.id;
   renderEditors();
   queueSave(true);
 }
 
 function addEgress() {
-  state.egresses.push({
+  const egress = {
     id: newId('eg'),
     name: `Egress ${state.egresses.length + 1}`,
     protocol: 'http',
@@ -451,7 +539,9 @@ function addEgress() {
     downMbps: '',
     tags: [],
     notes: '',
-  });
+  };
+  state.egresses.push(egress);
+  ui.activeItems.egresses = egress.id;
   renderEditors();
   queueSave(true);
 }
@@ -459,7 +549,7 @@ function addEgress() {
 function addRule() {
   const defaultSourceIds = state.sources.filter((item) => item.enabled).slice(0, 1).map((item) => item.id);
   const defaultTargets = state.egresses.filter((item) => item.enabled).slice(0, 1).map((item) => item.id);
-  state.rules.push({
+  const rule = {
     id: newId('rule'),
     name: `Rule ${state.rules.length + 1}`,
     enabled: true,
@@ -469,7 +559,9 @@ function addRule() {
     match: { sourceIds: defaultSourceIds, sourceNameRegex: '', nodeNameRegex: '', protocols: [] },
     targets: defaultTargets,
     notes: '',
-  });
+  };
+  state.rules.push(rule);
+  ui.activeItems.rules = rule.id;
   renderEditors();
   queueSave(true);
 }
@@ -482,6 +574,7 @@ function duplicateItem(collection, id, prefix) {
   clone.id = newId(prefix);
   clone.name = `${clone.name} copy`;
   list.splice(index + 1, 0, clone);
+  ui.activeItems[collection] = clone.id;
   renderEditors();
   queueSave(true);
 }
@@ -491,6 +584,9 @@ function removeItem(collection, id) {
   const index = list.findIndex((item) => item.id === id);
   if (index < 0) return;
   list.splice(index, 1);
+  if (ui.activeItems[collection] === id || !list.some((item) => item.id === ui.activeItems[collection])) {
+    ui.activeItems[collection] = list[Math.min(index, list.length - 1)]?.id || '';
+  }
   renderEditors();
   queueSave(true);
 }
