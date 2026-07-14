@@ -9,6 +9,7 @@ import { getClientExport } from './exporters.js';
 import { generateNormalizedSnapshot, generateSingBoxConfig } from './generator.js';
 import { parseSubscriptionContent } from './parsers.js';
 import { getQrPayload } from './qr.js';
+import { testSource } from './source-test.js';
 import { normalizeState } from './state.js';
 import { loadState, saveState } from './store.js';
 import {
@@ -130,6 +131,12 @@ async function routeRequest(req, res) {
     const content = await loadSourceContent(source);
     const parsed = parseSubscriptionContent(content, source);
     return sendJson(res, 200, parsed);
+  }
+  if (req.method === 'POST' && url.pathname === '/api/test-source') {
+    const body = await readJsonBody(req);
+    const source = body?.source || {};
+    const result = await testSource(source, loadSourceContent);
+    return sendJson(res, 200, result);
   }
   if (req.method === 'POST' && url.pathname === '/api/generate') {
     const body = await readJsonBody(req);

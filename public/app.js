@@ -20,6 +20,7 @@ const ui = {
   generated: null,
   diagnosis: null,
   previews: {},
+  sourceTests: {},
   exportFormat: 'shadowrocket',
   exportView: 'qr',
   activeItems: {
@@ -284,6 +285,7 @@ function setActiveItem(collection, id) {
 
 function renderSource(source, index) {
   const preview = ui.previews[source.id];
+  const sourceTest = ui.sourceTests[source.id];
   const isText = source.kind === 'text';
   return `
     <div class="entity" data-kind="source" data-id="${source.id}">
@@ -294,7 +296,8 @@ function renderSource(source, index) {
           <span class="pill ${source.enabled ? 'ok' : 'off'}">${source.enabled ? 'on' : 'off'}</span>
         </div>
         <div class="summary-actions">
-          <button data-action="preview-source" data-id="${source.id}">测试解析</button>
+          <button data-action="preview-source" data-id="${source.id}">解析</button>
+          <button data-action="test-source" data-id="${source.id}">测试</button>
           ${renderMoreActions('source', source.id)}
         </div>
       </div>
@@ -315,6 +318,7 @@ function renderSource(source, index) {
           </div>
         </details>
         ${preview ? `<div class="preview-box">${renderPreview(preview)}</div>` : ''}
+        ${sourceTest ? `<div class="preview-box">${renderSourceTest(sourceTest)}</div>` : ''}
       </div>
     </div>
   `;
@@ -580,6 +584,7 @@ function onClick(event) {
   if (action === 'diagnose') diagnose().catch(console.error);
   if (action === 'upgrade-now') upgradeNow().catch(console.error);
   if (action === 'preview-source') previewSource(id).catch(console.error);
+  if (action === 'test-source') testSource(id).catch(console.error);
   if (action === 'copy-config') copyCurrentConfig();
   if (action === 'copy-export-link') copyText(getExportUrl(ui.exportFormat)).catch(console.error);
   if (action === 'open-export-link') window.open(getExportUrl(ui.exportFormat), '_blank', 'noopener');
@@ -762,6 +767,7 @@ function removeItem(collection, id) {
   list.splice(index, 1);
   if (collection === 'sources') {
     delete ui.previews[id];
+    delete ui.sourceTests[id];
     state.rules.forEach((rule) => {
       rule.match.sourceIds = (rule.match?.sourceIds || []).filter((sourceId) => sourceId !== id);
     });
@@ -885,6 +891,27 @@ async function previewSource(id) {
     ui.previews[id] = {
       format: 'error',
       nodes: [],
+      warnings: [],
+      errors: [error instanceof Error ? error.message : String(error)],
+    };
+  }
+  renderEditors();
+}
+
+async function testSource(id) {
+  const source = state.sources.find((item) => item.id === id);
+  if (!source) return;
+  ui.sourceTests[id] = { loading: true, checks: [], warnings: [], errors: [] };
+  renderCollection('sources');
+  try {
+    ui.sourceTests[id] = await api('/api/test-source', {
+      method: 'POST',
+      body: JSON.stringify({ source }),
+    });
+  } catch (error) {
+    ui.sourceTests[id] = {
+      status: 'error',
+      checks: [],
       warnings: [],
       errors: [error instanceof Error ? error.message : String(error)],
     };
@@ -1294,6 +1321,43 @@ function renderPreview(preview) {
     ${sample ? `<div>${escapeHtml(sample)}</div>` : ''}
     ${warnings ? `<div class="warn">${escapeHtml(preview.warnings.join(' | '))}</div>` : ''}
     ${errors ? `<div class="error">${escapeHtml(preview.errors.join(' | '))}</div>` : ''}
+  `;
+}
+
+function renderSourceTest(result) {
+  if (result.loading) {
+    return '<strong>Testing...</strong><div class="muted">Reading source, parsing nodes, and checking TCP reachability.</div>';
+  }
+  const checks = Array.isArray(result.checks) ? result.checks : [];
+  const openCount = checks.filter((item) => item.status === 'open').length;
+  const latencyValues = checks.map((item) => Number(item.latencyMs)).filter((value) => Number.isFinite(value));
+  const avgLatency = latencyValues.length
+    ? Math.round(latencyValues.reduce((sum, value) => sum + value, 0) / latencyValues.length)
+    : null;
+  const protocols = Object.entries(result.protocolCounts || {})
+    .map(([protocol, count]) => `${protocol} ${count}`)
+    .join(' | ');
+  const rows = checks.slice(0, 10).map((item) => {
+    const latency = item.latencyMs == null ? '' : ` ${item.latencyMs}ms`;
+    const message = item.message ? ` - ${item.message}` : '';
+    return `
+      <div class="list-item">
+        <strong>${escapeHtml(item.name || 'unnamed')}</strong>
+        <div class="muted">${escapeHtml(item.protocol || 'unknown')} | ${escapeHtml(item.status || 'unknown')}${escapeHtml(latency)}${escapeHtml(message)}</div>
+      </div>
+    `;
+  }).join('');
+  return `
+    <strong>Source test</strong>
+    <div class="muted">
+      ${escapeHtml(result.status || 'unknown')} | nodes ${Number(result.nodes || 0)} | checked ${Number(result.checked || 0)} | open ${openCount}${avgLatency == null ? '' : ` | avg ${avgLatency}ms`}
+    </div>
+    <div class="muted">fetch ${Number(result.fetchMs || 0)}ms | parse ${Number(result.parseMs || 0)}ms | total ${Number(result.elapsedMs || 0)}ms | ${Number(result.bytes || 0)} bytes</div>
+    ${protocols ? `<div>${escapeHtml(protocols)}</div>` : ''}
+    ${result.truncated ? '<div class="warn">Only the first 20 nodes were tested.</div>' : ''}
+    ${rows ? `<div class="list" style="margin-top:8px">${rows}</div>` : ''}
+    ${result.warnings?.length ? `<div class="warn">${escapeHtml(result.warnings.join(' | '))}</div>` : ''}
+    ${result.errors?.length ? `<div class="error">${escapeHtml(result.errors.join(' | '))}</div>` : ''}
   `;
 }
 
