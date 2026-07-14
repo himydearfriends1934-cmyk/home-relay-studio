@@ -153,8 +153,8 @@ async function routeRequest(req, res) {
       restartScheduled,
     });
   }
-  if (req.method === 'GET' && url.pathname.startsWith('/api/export/')) {
-    return handleExportRequest(url, res);
+  if (isExportMethod(req.method) && url.pathname.startsWith('/api/export/')) {
+    return handleExportRequest(url, res, req.method === 'HEAD');
   }
   if (req.method === 'GET' && url.pathname === '/api/qr') {
     const text = url.searchParams.get('text') || '';
@@ -202,15 +202,19 @@ function parseOptionalPort(value) {
 
 async function routePublicSubscriptionRequest(req, res) {
   const url = new URL(req.url, 'http://127.0.0.1');
-  if (req.method === 'GET' && url.pathname.startsWith('/api/export/')) {
-    return handleExportRequest(url, res);
+  if (isExportMethod(req.method) && url.pathname.startsWith('/api/export/')) {
+    return handleExportRequest(url, res, req.method === 'HEAD');
   }
   return sendText(res, 404, 'Not found');
 }
 
-async function handleExportRequest(url, res) {
+function isExportMethod(method) {
+  return method === 'GET' || method === 'HEAD';
+}
+
+async function handleExportRequest(url, res, headOnly = false) {
   if (!subscriptionTokenMatches(subscriptionToken, url.searchParams.get('token') || '')) {
-    return sendText(res, 403, 'Invalid or missing subscription token.');
+    return sendText(res, 403, 'Invalid or missing subscription token.', { headOnly });
   }
   const format = url.pathname.slice('/api/export/'.length);
   const viewState = normalizeState(state);
@@ -218,21 +222,22 @@ async function handleExportRequest(url, res) {
   const exportUrl = publicBaseUrl ? buildPublicExportUrl(format) : '';
   const output = getClientExport(format, viewState, parsedSources, { exportUrl });
   if (!output) {
-    return sendText(res, 404, 'Unknown export format');
+    return sendText(res, 404, 'Unknown export format', { headOnly });
   }
   if (output.error) {
-    return sendText(res, 422, output.error);
+    return sendText(res, 422, output.error, { headOnly });
   }
   if (!output.nodeCount) {
     const failedSource = parsedSources.find((bundle) => bundle.errors?.length);
     const detail = failedSource
       ? ` Source "${failedSource.source.name}": ${failedSource.errors[0]}`
       : '';
-    return sendText(res, 422, `No usable nodes were generated. Check the source preview, enabled egress, and rule targets.${detail}`);
+    return sendText(res, 422, `No usable nodes were generated. Check the source preview, enabled egress, and rule targets.${detail}`, { headOnly });
   }
   const headers = {
     'content-type': output.contentType,
     'cache-control': 'no-store',
+    'content-length': String(Buffer.byteLength(output.body)),
     'x-relay-node-count': String(output.nodeCount),
   };
   if (output.id === 'shadowrocket') {
@@ -242,7 +247,7 @@ async function handleExportRequest(url, res) {
     headers['content-disposition'] = `attachment; filename="${output.filename}"`;
   }
   res.writeHead(200, headers);
-  res.end(output.body);
+  res.end(headOnly ? undefined : output.body);
 }
 
 function buildPublicExportUrl(format) {
@@ -342,9 +347,9 @@ function sendJson(res, statusCode, value, headers = {}) {
   res.end(JSON.stringify(value, null, 2));
 }
 
-function sendText(res, statusCode, text) {
+function sendText(res, statusCode, text, options = {}) {
   res.writeHead(statusCode, { 'content-type': 'text/plain; charset=utf-8' });
-  res.end(text);
+  res.end(options.headOnly ? undefined : text);
 }
 
 function contentType(filePath) {

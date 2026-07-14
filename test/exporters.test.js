@@ -119,6 +119,33 @@ test('rejects V2Ray URI export when assignments require a chained egress', () =>
   assert.match(output.error, /v2ray.*(?:chain|egress)|(?:chain|egress).*v2ray/i);
 });
 
+test('exports V2RayN URI subscriptions for direct assignments', () => {
+  const state = normalizeState({
+    sources: [
+      {
+        id: 'src-1',
+        name: 'Direct source',
+        kind: 'text',
+        content:
+          'vless://11111111-1111-1111-1111-111111111111@example.com:443?encryption=none&security=tls&type=ws&host=example.com&path=%2Fchat#direct-node',
+        enabled: true,
+      },
+    ],
+    egresses: [{ id: 'eg-direct', name: 'Direct', protocol: 'direct', enabled: true }],
+    export: { defaultEgressId: 'eg-direct' },
+  });
+  const parsedSources = state.sources.map((source) => ({
+    source,
+    ...parseSubscriptionContent(source.content, source),
+  }));
+  const output = getClientExport('v2rayn', state, parsedSources);
+  const decoded = Buffer.from(output.body, 'base64').toString('utf8');
+
+  assert.equal(output.filename, 'v2ray-subscription.txt');
+  assert.match(decoded, /^vless:\/\//);
+  assert.match(decoded, /#direct-node%20via%20Direct$/);
+});
+
 test('keeps raw Clash H2 options intact while attaching the home-egress chain', () => {
   const state = normalizeState({
     sources: [{ id: 'src-1', name: 'H2', kind: 'text', enabled: true }],

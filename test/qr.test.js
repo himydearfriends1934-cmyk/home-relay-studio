@@ -3,12 +3,12 @@ import { Buffer } from 'node:buffer';
 import test from 'node:test';
 import { getQrPayload } from '../src/qr.js';
 
-test('wraps a Shadowrocket subscription URL in an add/sub deep link', () => {
+test('wraps a Shadowrocket subscription URL in an add/sub deep link with standard base64', () => {
   const url = 'https://example.com/api/export/shadowrocket';
   const payload = getQrPayload('shadowrocket', url);
   assert.match(payload, /^shadowrocket:\/\/add\/sub:\/\//);
   const encoded = payload.slice('shadowrocket://add/sub://'.length).split('?')[0];
-  assert.equal(Buffer.from(encoded, 'base64url').toString('utf8'), url);
+  assert.equal(Buffer.from(encoded, 'base64').toString('utf8'), url);
   assert.match(payload, /[?&]remark=Home%20Relay%20Studio(?:&|$)/);
 });
 

@@ -8,6 +8,7 @@ const EXPORT_FORMATS = [
   { id: 'shadowrocket', label: 'Shadowrocket' },
   { id: 'sing-box', label: 'Sing-box' },
   { id: 'clash', label: 'Clash' },
+  { id: 'v2ray', label: 'V2RayN' },
 ];
 const EXPORT_VIEWS = [
   { id: 'qr', label: '二维码' },
@@ -1098,6 +1099,7 @@ function renderExportOutput() {
       ${renderPreflightState(nodeCount)}
       ${ready ? renderReadyExport(meta, exportUrl) : ''}
       ${ready && ui.exportFormat === 'shadowrocket' && hasAssignedHttpEgress() ? renderHttpUdpNotice() : ''}
+      ${ready && ui.exportFormat === 'v2ray' && hasChainedAssignments() ? renderV2RayNotice() : ''}
       ${ui.generated && ui.exportFormat === 'sing-box'
         ? `
           <details class="advanced" style="margin-top:12px" data-details-key="output:raw" ${detailsOpen('output:raw')}>
@@ -1181,11 +1183,25 @@ function hasAssignedHttpEgress() {
   return state.egresses.some((item) => item.enabled && item.protocol === 'http');
 }
 
+function hasChainedAssignments() {
+  const assignments = Array.isArray(ui.generated?.assignments) ? ui.generated.assignments : [];
+  return assignments.some((item) => item?.egress?.protocol && item.egress.protocol !== 'direct');
+}
+
 function renderHttpUdpNotice() {
   return `
     <div class="compat-notice">
       <strong>HTTP 家宽出口仅支持 TCP</strong>
       <span>请在 Shadowrocket 中把“不支持 UDP 的行为”设为 REJECT，并关闭或阻断 QUIC，避免 UDP 直连。需要完整 UDP 时，请改用支持 UDP 的 SOCKS5 或 Shadowsocks 家宽出口。</span>
+    </div>
+  `;
+}
+
+function renderV2RayNotice() {
+  return `
+    <div class="compat-notice">
+      <strong>V2RayN 只支持普通 URI 订阅</strong>
+      <span>当前配置包含家宽链式出口，V2RayN 订阅无法携带这层链路；需要保留家宽出口时，请使用 Shadowrocket、Clash 或 Sing-box。</span>
     </div>
   `;
 }
@@ -1390,16 +1406,16 @@ function getExportQrUrl(format) {
 }
 
 function getShadowrocketImportUrl(exportUrl) {
-  return `shadowrocket://add/sub://${base64UrlEncode(exportUrl)}?remark=${encodeURIComponent('Home Relay Studio')}`;
+  return `shadowrocket://add/sub://${base64Encode(exportUrl)}?remark=${encodeURIComponent('Home Relay Studio')}`;
 }
 
-function base64UrlEncode(value) {
+function base64Encode(value) {
   const bytes = new TextEncoder().encode(String(value ?? ''));
   let binary = '';
   bytes.forEach((byte) => {
     binary += String.fromCharCode(byte);
   });
-  return btoa(binary).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/u, '');
+  return btoa(binary);
 }
 
 function downloadText(filename, content) {
