@@ -4,5 +4,7 @@ work/
 outputs/
 .upgrade-revision
 .home-relay-studio.json
+.home-relay-studio.pid
+.home-relay-studio.child.pid
 .DS_Store
 *.log
