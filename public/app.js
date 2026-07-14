@@ -817,7 +817,7 @@ function renderExportOutput() {
         ? `
           <div class="qr-panel">
             <img class="qr-image" src="${escapeHtml(qrUrl)}" alt="${escapeHtml(meta.label)} QR" />
-            <div class="muted">${ui.exportFormat === 'shadowrocket' ? 'Shadowrocket subscription QR' : escapeHtml(exportUrl)}</div>
+            <div class="muted">${ui.exportFormat === 'shadowrocket' ? 'Shadowrocket config QR for chained home egress' : escapeHtml(exportUrl)}</div>
           </div>
         `
         : `
