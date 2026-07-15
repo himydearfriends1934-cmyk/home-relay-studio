@@ -75,7 +75,7 @@ test('exports Shadowrocket subscriptions as flattened final egress nodes', () =>
   assert.equal(config.proxies.length, 1);
   assert.equal(config.proxies[0].type, 'http');
   assert.equal(config.proxies[0].server, 'isp.example.com');
-  assert.equal(config.proxies[0].name, 'node-a via france');
+  assert.equal(config.proxies[0].name, 'france - node-a');
   assert.equal(config.proxies[0]['dialer-proxy'], undefined);
   assert.equal(output.body.includes('dialer-proxy:'), false);
 });
@@ -112,7 +112,7 @@ test('exports V2Ray URI subscriptions as flattened final egress nodes', () => {
   assert.equal(output.nodeCount, 1);
   assert.equal(output.error, undefined);
   assert.match(decoded, /^http:\/\/user:pass@isp\.example\.com:10001/);
-  assert.match(decoded, /#node-a%20via%20france$/);
+  assert.match(decoded, /#france%20-%20node-a$/);
 });
 
 test('exports V2RayN URI subscriptions for direct assignments', () => {
@@ -139,7 +139,7 @@ test('exports V2RayN URI subscriptions for direct assignments', () => {
 
   assert.equal(output.filename, 'v2ray-subscription.txt');
   assert.match(decoded, /^vless:\/\//);
-  assert.match(decoded, /#direct-node%20via%20Direct$/);
+  assert.match(decoded, /#Direct%20-%20direct-node$/);
 });
 
 test('keeps raw Clash H2 options intact while attaching the home-egress chain in Clash exports', () => {

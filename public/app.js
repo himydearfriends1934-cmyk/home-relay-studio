@@ -359,11 +359,7 @@ function buildRouteOutputSnapshots(generated) {
     const links = matched
       .map((assignment, index) => {
         const protocol = normalizeRouteProtocol(assignment.node?.protocol);
-        const nodeName = String(assignment.node?.name || '').trim() || assignment.tag || `Node ${index + 1}`;
-        const egressName = String(assignment.egress?.name || '').trim();
-        const label = assignment.egress?.protocol === 'direct' || !egressName
-          ? nodeName
-          : `${nodeName} via ${egressName}`;
+        const label = formatRouteAssignmentName(assignment, index);
         const uri = String(assignment.uri || '').trim();
         return {
           index,
@@ -418,6 +414,23 @@ function buildRouteOutputCode(set, assignments, sourceNames, egressNames) {
     lines.push(`${index + 1}. ${assignment.node?.protocol || 'unknown'} | ${assignment.node?.name || 'unnamed'} -> ${assignment.egress?.name || assignment.egressId || 'egress'} | ${assignment.tag}`);
   }
   return lines.join('\n');
+}
+
+function formatRouteAssignmentName(assignment, fallbackIndex = 0) {
+  const nodeName = String(assignment?.node?.name || '').trim() || `Node ${fallbackIndex + 1}`;
+  const egressName = String(assignment?.egress?.name || '').trim();
+  const protocol = String(assignment?.node?.protocol || '').trim();
+  const template = String(state.export?.nameTemplate || '{egressName} - {nodeName}');
+  const values = {
+    sourceName: String(assignment?.sourceName || '').trim(),
+    nodeName,
+    egressName,
+    protocol,
+  };
+  const formatted = template.replace(/\{([A-Za-z0-9_]+)\}/g, (_, key) => values[key] ?? '');
+  const compacted = formatted.replace(/\s+/g, ' ').replace(/\s*-\s*/g, ' - ').trim();
+  if (compacted) return compacted;
+  return egressName ? `${egressName} - ${nodeName}` : nodeName;
 }
 
 function renderRouteCopyMenu(set, output) {

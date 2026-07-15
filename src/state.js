@@ -8,7 +8,7 @@ export function createDefaultState() {
     egresses: [],
     rules: [],
     export: {
-      nameTemplate: '{nodeName} via {egressName}',
+      nameTemplate: '{egressName} - {nodeName}',
       includeSelectors: true,
       includeUrlTest: true,
       includeInbound: true,
@@ -38,9 +38,12 @@ export function normalizeState(input) {
     ...createDefaultState().export,
     ...(state.export ?? {}),
   };
-  state.export.nameTemplate = normalizeName(state.export.nameTemplate) || '{nodeName} via {egressName}';
-  if (state.export.nameTemplate === '{sourceName} via {egressName}') {
-    state.export.nameTemplate = '{nodeName} via {egressName}';
+  state.export.nameTemplate = normalizeName(state.export.nameTemplate) || '{egressName} - {nodeName}';
+  if (
+    state.export.nameTemplate === '{sourceName} via {egressName}' ||
+    state.export.nameTemplate === '{nodeName} via {egressName}'
+  ) {
+    state.export.nameTemplate = '{egressName} - {nodeName}';
   }
   state.export.includeSelectors = Boolean(state.export.includeSelectors);
   state.export.includeUrlTest = Boolean(state.export.includeUrlTest);

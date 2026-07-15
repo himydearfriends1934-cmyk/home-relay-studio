@@ -222,7 +222,7 @@ export function buildAssignmentExportNode(assignment, template) {
   };
 }
 
-export function formatAssignmentName(assignment, template = '{sourceName} via {egressName}') {
+export function formatAssignmentName(assignment, template = '{egressName} - {nodeName}') {
   const values = {
     sourceName: assignment.sourceName || assignment.source?.name || '',
     nodeName: assignment.node?.name || '',
