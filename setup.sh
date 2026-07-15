@@ -142,6 +142,35 @@ node_major_version() {
   node -p "Number(process.versions.node.split('.')[0])" 2>/dev/null || printf '0'
 }
 
+tailscale_ipv4() {
+  local ip
+  if ! command -v tailscale >/dev/null 2>&1; then
+    return 1
+  fi
+  ip="$(tailscale ip -4 2>/dev/null | head -n 1 | tr -d '\r' || true)"
+  if [[ "$ip" =~ ^([0-9]{1,3}\.){3}[0-9]{1,3}$ ]]; then
+    printf '%s' "$ip"
+    return 0
+  fi
+  return 1
+}
+
+select_bind_host() {
+  local ip
+  if [[ -n "${HOME_RELAY_BIND_HOST:-}" ]]; then
+    say "使用指定监听地址：$HOME_RELAY_BIND_HOST" >&2
+    printf '%s' "$HOME_RELAY_BIND_HOST"
+    return 0
+  fi
+  if ip="$(tailscale_ipv4)"; then
+    say "✓ 检测到 Tailscale 地址：$ip" >&2
+    printf '%s' "$ip"
+    return 0
+  fi
+  say "! 未检测到可用 Tailscale 地址，后台仅监听本机 127.0.0.1。" >&2
+  printf '127.0.0.1'
+}
+
 check_environment() {
   say ""
   say "正在进行安装前环境检测……"
@@ -218,18 +247,19 @@ check_environment() {
 }
 
 port_available() {
+  local port="$1" host="${2:-127.0.0.1}"
   node -e '
     const net = require("net");
     const server = net.createServer();
     server.once("error", () => process.exit(1));
-    server.listen(Number(process.argv[1]), "127.0.0.1", () => server.close(() => process.exit(0)));
-  ' "$1"
+    server.listen(Number(process.argv[1]), process.argv[2], () => server.close(() => process.exit(0)));
+  ' "$port" "$host"
 }
 
 find_port() {
-  local port="$1"
+  local port="$1" host="${2:-127.0.0.1}"
   while (( port <= 65535 )); do
-    if port_available "$port"; then printf '%s' "$port"; return 0; fi
+    if port_available "$port" "$host"; then printf '%s' "$port"; return 0; fi
     ((port += 1))
   done
   return 1
@@ -266,15 +296,15 @@ stop_service() {
 }
 
 choose_port() {
-  local requested replacement answer
+  local bind_host="${1:-127.0.0.1}" requested replacement answer
   requested="$(configured_port)"
-  if port_available "$requested"; then
-    say "✓ 端口 $requested 可用" >&2
+  if port_available "$requested" "$bind_host"; then
+    say "✓ $bind_host:$requested 可用" >&2
     printf '%s' "$requested"
     return
   fi
-  replacement="$(find_port "$((requested + 1))")" || { say "没有找到可用端口。" >&2; return 1; }
-  say "! 端口 $requested 已被占用，可替换为 $replacement。" >&2
+  replacement="$(find_port "$((requested + 1))" "$bind_host")" || { say "没有找到可用端口。" >&2; return 1; }
+  say "! $bind_host:$requested 已被占用，可替换为 $replacement。" >&2
   answer="$(ask "是否替换端口？[Y/n] ")" || return 1
   if [[ -n "$answer" && ! "$answer" =~ ^[Yy]([Ee][Ss])?$ ]]; then
     say "已取消安装/更新。" >&2
@@ -285,7 +315,7 @@ choose_port() {
 
 install_or_update() {
   check_environment
-  local updating=0 port
+  local updating=0 bind_host port
   if is_installed; then
     updating=1
     say "检测到已安装版本，将执行更新。"
@@ -293,7 +323,8 @@ install_or_update() {
   else
     say "未检测到已安装版本，将执行全新安装。"
   fi
-  port="$(choose_port)"
+  bind_host="$(select_bind_host)"
+  port="$(choose_port "$bind_host")"
 
   if (( updating )); then
     git -C "$INSTALL_DIR" fetch origin main
@@ -308,7 +339,7 @@ install_or_update() {
   fi
 
   npm --prefix "$INSTALL_DIR" install --omit=dev
-  HOME_RELAY_CONFIG_FILE="$CONFIG_FILE" HOME_RELAY_PORT="$port" node <<'NODE'
+  HOME_RELAY_CONFIG_FILE="$CONFIG_FILE" HOME_RELAY_BIND_HOST="$bind_host" HOME_RELAY_PORT="$port" node <<'NODE'
 const crypto = require('node:crypto');
 const fs = require('node:fs');
 const configPath = process.env.HOME_RELAY_CONFIG_FILE;
@@ -319,7 +350,7 @@ try {
 if (typeof config.subscriptionToken !== 'string' || config.subscriptionToken.length < 32) {
   config.subscriptionToken = crypto.randomBytes(32).toString('base64url');
 }
-config.host = '127.0.0.1';
+config.host = process.env.HOME_RELAY_BIND_HOST || '127.0.0.1';
 config.port = Number(process.env.HOME_RELAY_PORT);
 const tempPath = `${configPath}.${process.pid}.tmp`;
 fs.writeFileSync(tempPath, `${JSON.stringify(config, null, 2)}\n`, { mode: 0o600 });
@@ -344,7 +375,13 @@ NODE
   fi
   say ""
   say "$([[ $updating == 1 ]] && echo '更新' || echo '安装')完成。"
-  say "访问地址：http://127.0.0.1:$port"
+  say "访问地址：http://$bind_host:$port"
+  if [[ "$bind_host" == "127.0.0.1" ]]; then
+    say "远程访问建议：ssh -L $port:127.0.0.1:$port root@服务器IP，然后在本机打开上面的地址。"
+  else
+    say "管理页仅监听该 Tailscale 地址；公网 IP 不会直接开放后台。"
+    say "导出的节点/订阅仍按配置生成，可给外网客户端使用。"
+  fi
   say "日志文件：$LOG_FILE"
 }
 

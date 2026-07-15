@@ -39,6 +39,8 @@ bash <(curl -fsSL https://raw.githubusercontent.com/himydearfriends1934-cmyk/hom
 
 目前支持 `apt`、`dnf`、`yum`、`apk` 和 `pacman`。自动安装需要 root 或 `sudo` 权限。
 
+如果服务器已经登录 Tailscale，安装程序会自动检测 `tailscale ip -4`，并让管理后台监听该 Tailscale 地址。这样浏览器可通过 Tailnet 访问后台，公网 IP 不会直接开放管理页；导出的节点和订阅仍按配置生成，可给外网客户端使用。
+
 Windows 用户可以双击 `install.cmd`，也可以在 PowerShell 中运行：
 
 ```powershell
