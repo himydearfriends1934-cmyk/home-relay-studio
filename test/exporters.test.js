@@ -64,7 +64,7 @@ test('exports clash config with dialer proxy chain', () => {
   assert.match(output.body, /MATCH,relay-main/);
 });
 
-test('exports a Shadowrocket proxy-only subscription with closed dialer references', () => {
+test('exports Shadowrocket subscriptions as flattened final egress nodes', () => {
   const { state, parsedSources } = buildFixture();
   const output = getClientExport('shadowrocket', state, parsedSources);
   assert.equal(output.contentType, 'text/yaml; charset=utf-8');
@@ -72,18 +72,12 @@ test('exports a Shadowrocket proxy-only subscription with closed dialer referenc
   assert.deepEqual(Object.keys(config), ['proxies']);
   assert.ok(Array.isArray(config.proxies));
   assert.ok(config.proxies.length > 0);
-
-  const names = new Set(config.proxies.map((item) => item.name));
-  const chained = config.proxies.filter((item) => item['dialer-proxy']);
-  assert.ok(chained.length > 0);
-  for (const proxy of chained) {
-    assert.equal(names.has(proxy['dialer-proxy']), true, `${proxy.name} must reference an exported front proxy`);
-  }
-
-  const finalProxy = chained.find((item) => item.type === 'http');
-  assert.ok(finalProxy);
-  assert.equal(config.proxies[0].name, finalProxy.name, 'the selectable home-egress node should be listed before its helper');
-  assert.equal(config.proxies.find((item) => item.name === finalProxy['dialer-proxy']).type, 'vless');
+  assert.equal(config.proxies.length, 1);
+  assert.equal(config.proxies[0].type, 'http');
+  assert.equal(config.proxies[0].server, 'isp.example.com');
+  assert.equal(config.proxies[0].name, 'node-a via france');
+  assert.equal(config.proxies[0]['dialer-proxy'], undefined);
+  assert.equal(output.body.includes('dialer-proxy:'), false);
 });
 
 test('keeps Shadowsocks plugin options in Shadowrocket subscriptions', () => {
@@ -91,8 +85,8 @@ test('keeps Shadowsocks plugin options in Shadowrocket subscriptions', () => {
   const plugin = encodeURIComponent('v2ray-plugin;mode=websocket;tls;host=cdn.example.com');
   const state = normalizeState({
     sources: [{ id: 'src-1', name: 'SS', kind: 'text', enabled: true }],
-    egresses: [{ id: 'eg-1', name: 'Home', protocol: 'socks', server: 'home.example.com', port: 1080, enabled: true }],
-    export: { defaultEgressId: 'eg-1' },
+    egresses: [{ id: 'eg-direct', name: 'Direct', protocol: 'direct', enabled: true }],
+    export: { defaultEgressId: 'eg-direct' },
   });
   const parsed = parseSubscriptionContent(
     `ss://${credentials}@front.example.com:8388?plugin=${plugin}#plugin-node`,
@@ -146,7 +140,7 @@ test('exports V2RayN URI subscriptions for direct assignments', () => {
   assert.match(decoded, /#direct-node%20via%20Direct$/);
 });
 
-test('keeps raw Clash H2 options intact while attaching the home-egress chain', () => {
+test('keeps raw Clash H2 options intact while attaching the home-egress chain in Clash exports', () => {
   const state = normalizeState({
     sources: [{ id: 'src-1', name: 'H2', kind: 'text', enabled: true }],
     egresses: [
@@ -180,7 +174,7 @@ proxies:
     state.sources[0],
   );
 
-  const output = getClientExport('shadowrocket', state, [{ source: state.sources[0], ...parsed }]);
+  const output = getClientExport('clash', state, [{ source: state.sources[0], ...parsed }]);
   const config = yaml.load(output.body);
   const finalProxy = config.proxies.find((proxy) => proxy['dialer-proxy']);
   const helper = config.proxies.find((proxy) => proxy.name === finalProxy['dialer-proxy']);

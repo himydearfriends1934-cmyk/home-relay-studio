@@ -66,8 +66,7 @@ export function getClientExport(format, state, parsedSources, options = {}) {
   }
 
   if (id === 'shadowrocket') {
-    const config = generateClashConfig(state, singBox.assignments);
-    const proxies = orderShadowrocketProxies(config.proxies || []);
+    const proxies = generateShadowrocketProxies(state, singBox.assignments);
     return {
       ...meta,
       body: yaml.dump({ proxies }, {
@@ -75,7 +74,7 @@ export function getClientExport(format, state, parsedSources, options = {}) {
         noRefs: true,
         sortKeys: false,
       }),
-      nodeCount: singBox.counts.nodes,
+      nodeCount: proxies.length,
       warnings: singBox.assignmentWarnings,
     };
   }
@@ -99,12 +98,17 @@ export function getClientExport(format, state, parsedSources, options = {}) {
   };
 }
 
-function orderShadowrocketProxies(proxies) {
-  const helperNames = new Set(proxies.map((proxy) => proxy['dialer-proxy']).filter(Boolean));
-  return [
-    ...proxies.filter((proxy) => !helperNames.has(proxy.name)),
-    ...proxies.filter((proxy) => helperNames.has(proxy.name)),
-  ];
+function generateShadowrocketProxies(state, assignments) {
+  const usedNames = new Set();
+  const proxies = [];
+  for (const assignment of assignments) {
+    const displayName = makeUniqueName(formatAssignmentName(assignment, state.export?.nameTemplate), usedNames);
+    const proxy = assignment.egress.protocol === 'direct'
+      ? buildClashProxy(assignment.node, displayName)
+      : buildClashProxy(assignment.egress, displayName);
+    proxies.push(proxy);
+  }
+  return proxies;
 }
 
 export function generateClashConfig(state, assignments) {
