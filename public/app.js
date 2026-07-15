@@ -816,7 +816,6 @@ function renderSource(source, index) {
           <span class="summary-title">${escapeHtml(source.name)}</span>
           <span class="pill">${escapeHtml(source.kind)}</span>
           <span class="pill ${source.sameVps ? 'ok' : 'off'}">${source.sameVps ? 'same VPS' : 'remote'}</span>
-          <span class="pill ${source.enabled ? 'ok' : 'off'}">${source.enabled ? 'on' : 'off'}</span>
         </div>
         <div class="summary-actions">
           <button data-action="preview-source" data-id="${source.id}">解析</button>
@@ -860,7 +859,6 @@ function renderEgress(egress, index) {
         <div class="summary-left">
           <span class="summary-title">${escapeHtml(egress.name)}</span>
           <span class="pill">${escapeHtml(egress.protocol)}</span>
-          <span class="pill ${egress.enabled ? 'ok' : 'off'}">${egress.enabled ? 'on' : 'off'}</span>
         </div>
         <div class="summary-actions">
           ${renderMoreActions('egress', egress.id)}
@@ -916,7 +914,6 @@ function renderRule(rule, index) {
       <div class="entity-summary">
         <div class="summary-left">
           <span class="summary-title">${escapeHtml(rule.name)}</span>
-          <span class="pill ${rule.enabled ? 'ok' : 'off'}">${rule.enabled ? 'on' : 'off'}</span>
         </div>
         <div class="summary-actions">
           ${renderMoreActions('rule', rule.id)}
