@@ -203,15 +203,16 @@ function renderRouteSetPanel() {
     const sourceNames = set.sourceIds
       .map((id) => state.sources.find((item) => item.id === id)?.name || id)
       .join(', ') || 'Any source';
-    const egressNames = set.egressIds
-      .map((id) => state.egresses.find((item) => item.id === id)?.name || id)
-      .join(', ') || 'No egress';
     const output = outputMap.get(set.key);
     const protocols = output?.protocols?.length
       ? output.protocols.map((protocol) => PROTOCOL_LABELS[protocol] || protocol).join(', ')
       : getRouteSetProtocolText(set);
     const outputCode = output?.code || 'Generate to save this route output.';
-    const outputLines = outputCode.split('\n').slice(0, 3).join('\n');
+    const outputLines = outputCode
+      .split('\n')
+      .filter((line) => !line.startsWith('# Egress:'))
+      .slice(0, 3)
+      .join('\n');
     return `
       <tr
         class="route-set-row ${active ? 'active' : ''} ${set.enabled ? '' : 'is-off'}"
@@ -223,7 +224,6 @@ function renderRouteSetPanel() {
           <strong>${escapeHtml(sourceNames)}</strong>
           <div class="muted">${escapeHtml(set.enabled ? 'running' : 'saved')}</div>
         </td>
-        <td>${escapeHtml(egressNames)}</td>
         <td>
           <strong>${escapeHtml(set.title)}</strong>
           <div class="muted">${escapeHtml(set.ruleId || 'no rule')}</div>
@@ -243,7 +243,7 @@ function renderRouteSetPanel() {
     <div class="route-set-head">
       <div>
         <h2>Route Links</h2>
-        <div class="meta">Saved source / egress / rule outputs. Click a row to edit that link.</div>
+        <div class="meta">Saved source / rule outputs. QR and links are in Link.</div>
       </div>
       <div class="route-set-actions">
         <button class="primary" data-action="generate">生成 / 预检</button>
@@ -258,7 +258,6 @@ function renderRouteSetPanel() {
               <tr>
                 <th>Link</th>
                 <th>Source</th>
-                <th>Egress</th>
                 <th>Rule</th>
                 <th>Protocols</th>
                 <th>Output code</th>
@@ -433,7 +432,6 @@ function renderRouteCopySheet() {
   const { set, sheet, output } = data;
   const tab = sheet.tab === 'links' ? 'links' : 'subscription';
   const sourceNames = set?.sourceIds?.map((id) => state.sources.find((item) => item.id === id)?.name || id).join(', ') || 'Any source';
-  const egressNames = set?.egressIds?.map((id) => state.egresses.find((item) => item.id === id)?.name || id).join(', ') || 'No egress';
   panel.innerHTML = `
     <div class="route-copy-backdrop" data-action="close-route-copy-sheet"></div>
     <section class="route-copy-sheet" role="dialog" aria-modal="true" aria-labelledby="route-copy-sheet-title">
@@ -441,7 +439,7 @@ function renderRouteCopySheet() {
         <div>
           <div class="route-copy-sheet-kicker">QrCode</div>
           <h2 id="route-copy-sheet-title">${escapeHtml(set?.title || `Route ${output.index + 1}`)}</h2>
-          <div class="meta">${escapeHtml(sourceNames)} · ${escapeHtml(egressNames)}</div>
+          <div class="meta">${escapeHtml(sourceNames)}</div>
         </div>
         <button class="route-copy-close" data-action="close-route-copy-sheet" aria-label="关闭">×</button>
       </div>
@@ -587,7 +585,7 @@ function renderRouteCopyLinksTab(output) {
 function renderRouteCopyLinkCard(link) {
   const label = link.label || link.displayName || 'Node';
   const protocolLabel = link.protocolLabel || PROTOCOL_LABELS[link.protocol] || link.protocol || '';
-  const subtitle = [protocolLabel, link.egressName || link.ruleName || ''].filter(Boolean).join(' · ');
+  const subtitle = [protocolLabel, link.ruleName || ''].filter(Boolean).join(' · ');
   return `
     <div class="route-copy-card route-copy-node-card">
       <div class="route-copy-card-label">${escapeHtml(label)}</div>
