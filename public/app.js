@@ -99,6 +99,7 @@ await boot();
 async function boot() {
   [state, runtime] = await Promise.all([api('/api/state'), api('/api/runtime')]);
   renderShell();
+  syncDocumentTitle();
   wireEvents();
   renderEditors();
   renderOutput();
@@ -171,6 +172,10 @@ function renderShell() {
 
     </div>
   `;
+}
+
+function syncDocumentTitle() {
+  document.title = state?.projectName || 'Home Relay Studio';
 }
 
 function renderEditors() {
@@ -1714,6 +1719,9 @@ function updateStateFromInput(target) {
   const path = target.dataset.path;
   const value = readInputValue(target);
   setByPath(state, path, value);
+  if (path === 'projectName') {
+    syncDocumentTitle();
+  }
   if (/^egresses\.\d+\.protocol$/.test(path) && ['trojan', 'hysteria2', 'tuic'].includes(value)) {
     const index = Number(path.split('.')[1]);
     if (state.egresses[index]) state.egresses[index].tlsEnabled = true;
