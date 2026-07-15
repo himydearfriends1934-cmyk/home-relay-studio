@@ -26,15 +26,18 @@ bash <(curl -fsSL https://raw.githubusercontent.com/himydearfriends1934-cmyk/hom
 0. 退出
 ```
 
-选择安装或更新后，程序才会继续执行环境、目录和端口检测。默认安装在 `~/.home-relay-studio`；再次运行同一条命令即可更新或删除。
+选择安装或更新后，程序会先检查系统环境；如果发现 Git、curl/wget 或 Node.js/npm 不完整，会根据系统包管理器自动补齐。默认安装在 `~/.home-relay-studio`；再次运行同一条命令即可更新或删除。
 
 ## 仓库内安装脚本
 
-安装程序会在安装依赖前依次检查：
+安装程序会先做系统环境检测，并在可用时自动补齐依赖：
 
-- Node.js（要求 18 或更高版本）和 npm
+- Git、curl/wget、CA 证书
+- Node.js 22 LTS（兼容要求 18 或更高版本）和 npm
 - 项目目录是否可写
 - 服务端口是否可用
+
+目前支持 `apt`、`dnf`、`yum`、`apk` 和 `pacman`。自动安装需要 root 或 `sudo` 权限。
 
 Windows 用户可以双击 `install.cmd`，也可以在 PowerShell 中运行：
 

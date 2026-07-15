@@ -8,6 +8,8 @@ PID_FILE="$INSTALL_DIR/.home-relay-studio.pid"
 CHILD_PID_FILE="$INSTALL_DIR/.home-relay-studio.child.pid"
 LOG_FILE="$INSTALL_DIR/home-relay-studio.log"
 DEFAULT_PORT=8787
+NODE_MAJOR="${HOME_RELAY_NODE_MAJOR:-22}"
+PACKAGE_MANAGER=""
 
 say() { printf '%s\n' "$*"; }
 ask() {
@@ -22,32 +24,189 @@ ask() {
 
 is_installed() { [[ -d "$INSTALL_DIR/.git" && -f "$INSTALL_DIR/package.json" ]]; }
 
+run_as_root() {
+  if (( EUID == 0 )); then
+    "$@"
+  else
+    sudo "$@"
+  fi
+}
+
+ensure_root_privilege() {
+  if (( EUID == 0 )); then return 0; fi
+  if command -v sudo >/dev/null 2>&1; then
+    sudo -v
+    return 0
+  fi
+  say "✗ 自动安装依赖需要 root 或 sudo 权限。请切换 root 后重试。"
+  return 1
+}
+
+detect_package_manager() {
+  if [[ -n "$PACKAGE_MANAGER" ]]; then
+    printf '%s' "$PACKAGE_MANAGER"
+    return 0
+  fi
+  if command -v apt-get >/dev/null 2>&1; then
+    PACKAGE_MANAGER="apt"
+  elif command -v dnf >/dev/null 2>&1; then
+    PACKAGE_MANAGER="dnf"
+  elif command -v yum >/dev/null 2>&1; then
+    PACKAGE_MANAGER="yum"
+  elif command -v apk >/dev/null 2>&1; then
+    PACKAGE_MANAGER="apk"
+  elif command -v pacman >/dev/null 2>&1; then
+    PACKAGE_MANAGER="pacman"
+  else
+    say "✗ 未识别到支持的包管理器。请手动安装 Git、Node.js 18+（含 npm）和 curl/wget。"
+    return 1
+  fi
+  printf '%s' "$PACKAGE_MANAGER"
+}
+
+install_packages() {
+  local manager="$1"
+  shift
+  (( $# > 0 )) || return 0
+  case "$manager" in
+    apt)
+      run_as_root apt-get update
+      run_as_root env DEBIAN_FRONTEND=noninteractive apt-get install -y "$@"
+      ;;
+    dnf)
+      run_as_root dnf install -y "$@"
+      ;;
+    yum)
+      run_as_root yum install -y "$@"
+      ;;
+    apk)
+      run_as_root apk add --no-cache "$@"
+      ;;
+    pacman)
+      run_as_root pacman -Sy --noconfirm --needed "$@"
+      ;;
+    *)
+      say "✗ 不支持的包管理器：$manager"
+      return 1
+      ;;
+  esac
+}
+
+download_to_stdout() {
+  local url="$1"
+  if command -v curl >/dev/null 2>&1; then
+    curl -fsSL "$url"
+  elif command -v wget >/dev/null 2>&1; then
+    wget -qO- "$url"
+  else
+    return 1
+  fi
+}
+
+install_base_tools() {
+  local manager="$1"
+  say "正在安装基础环境：Git、curl、wget、CA 证书……"
+  case "$manager" in
+    apt|dnf|yum|pacman) install_packages "$manager" ca-certificates git curl wget ;;
+    apk) install_packages "$manager" ca-certificates git curl wget bash ;;
+    *) return 1 ;;
+  esac
+}
+
+install_node_runtime() {
+  local manager="$1"
+  say "正在安装 Node.js ${NODE_MAJOR}.x LTS 和 npm……"
+  case "$manager" in
+    apt)
+      download_to_stdout "https://deb.nodesource.com/setup_${NODE_MAJOR}.x" | run_as_root bash -
+      install_packages "$manager" nodejs
+      ;;
+    dnf|yum)
+      download_to_stdout "https://rpm.nodesource.com/setup_${NODE_MAJOR}.x" | run_as_root bash -
+      install_packages "$manager" nodejs
+      ;;
+    apk|pacman)
+      install_packages "$manager" nodejs npm
+      ;;
+    *)
+      return 1
+      ;;
+  esac
+}
+
+node_major_version() {
+  if ! command -v node >/dev/null 2>&1; then
+    printf '0'
+    return
+  fi
+  node -p "Number(process.versions.node.split('.')[0])" 2>/dev/null || printf '0'
+}
+
 check_environment() {
   say ""
   say "正在进行安装前环境检测……"
-  local missing=0 command_name
-  for command_name in git node npm; do
+  local missing_tools=0 need_node=0 command_name manager node_major
+
+  for command_name in git; do
     if command -v "$command_name" >/dev/null 2>&1; then
       say "✓ $command_name: $($command_name --version 2>/dev/null | head -n 1)"
     else
       say "✗ 未安装 $command_name"
-      missing=1
+      missing_tools=1
     fi
   done
   if command -v curl >/dev/null 2>&1 || command -v wget >/dev/null 2>&1; then
     say "✓ 下载工具可用"
   else
     say "✗ 未安装 curl 或 wget"
-    missing=1
+    missing_tools=1
   fi
-  if (( missing )); then
-    say "环境检测未通过。请先安装 Git、Node.js 18+（含 npm）和 curl/wget。"
+
+  if command -v node >/dev/null 2>&1; then
+    say "✓ node: $(node --version 2>/dev/null | head -n 1)"
+  else
+    say "✗ 未安装 node"
+    need_node=1
+  fi
+  if command -v npm >/dev/null 2>&1; then
+    say "✓ npm: $(npm --version 2>/dev/null | head -n 1)"
+  else
+    say "✗ 未安装 npm"
+    need_node=1
+  fi
+
+  node_major="$(node_major_version)"
+  if (( node_major < 18 )); then
+    [[ "$node_major" == "0" ]] || say "✗ Node.js 版本过低，需要 18 或更高版本。"
+    need_node=1
+  fi
+
+  if (( missing_tools || need_node )); then
+    if [[ "${HOME_RELAY_SKIP_AUTO_INSTALL:-0}" == "1" ]]; then
+      say "环境检测未通过，且已设置 HOME_RELAY_SKIP_AUTO_INSTALL=1，跳过自动安装。"
+      return 1
+    fi
+    manager="$(detect_package_manager)" || return 1
+    ensure_root_privilege || return 1
+    say "检测到环境不完整，将使用 $manager 自动补齐依赖。"
+    if (( missing_tools )); then install_base_tools "$manager"; fi
+    if (( need_node )); then install_node_runtime "$manager"; fi
+    say "依赖安装完成，正在复查环境……"
+  fi
+
+  for command_name in git node npm; do
+    if ! command -v "$command_name" >/dev/null 2>&1; then
+      say "✗ 自动安装后仍未检测到 $command_name，请手动检查系统包管理器。"
+      return 1
+    fi
+  done
+  if ! command -v curl >/dev/null 2>&1 && ! command -v wget >/dev/null 2>&1; then
+    say "✗ 自动安装后仍未检测到 curl 或 wget。"
     return 1
   fi
-  local node_major
-  node_major="$(node -p "Number(process.versions.node.split('.')[0])")"
+  node_major="$(node_major_version)"
   if (( node_major < 18 )); then
-    say "✗ Node.js 版本过低，需要 18 或更高版本。"
+    say "✗ 当前 Node.js 主版本为 $node_major，仍低于 18。"
     return 1
   fi
   mkdir -p "$(dirname "$INSTALL_DIR")"
@@ -180,7 +339,7 @@ NODE
   local child_pid
   child_pid="$(cat "$CHILD_PID_FILE" 2>/dev/null || true)"
   if [[ ! "$child_pid" =~ ^[0-9]+$ ]] || ! kill -0 "$child_pid" 2>/dev/null; then
-    say "鍚姩澶辫触锛岃鏌ョ湅鏃ュ織锛?LOG_FILE"
+    say "启动失败，请查看日志：$LOG_FILE"
     return 1
   fi
   say ""
