@@ -1182,6 +1182,20 @@ textarea.code {
   border-radius: 8px;
 }
 
+.route-copy-link-list {
+  display: grid;
+  gap: 12px;
+}
+
+.route-copy-node-card {
+  padding-top: 14px;
+}
+
+.route-copy-node-card .route-copy-card-label {
+  text-transform: none;
+  letter-spacing: 0;
+}
+
 .route-copy-card-label {
   color: var(--muted);
   font-size: 12px;
@@ -1193,6 +1207,13 @@ textarea.code {
   font-size: 15px;
 }
 
+.route-copy-card-label,
+.route-copy-card-title,
+.route-copy-card .muted {
+  max-width: 100%;
+  overflow-wrap: anywhere;
+}
+
 .route-copy-card-actions {
   display: flex;
   flex-wrap: wrap;
@@ -1200,9 +1221,35 @@ textarea.code {
   gap: 8px;
 }
 
+.route-copy-qr-button {
+  display: flex;
+  justify-content: center;
+  width: 100%;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  box-shadow: none;
+}
+
+.route-copy-qr-button:hover,
+.route-copy-qr-button:focus-visible,
+.route-copy-qr-button.is-working,
+.route-copy-qr-button.is-done,
+.route-copy-qr-button.is-failed {
+  background: transparent;
+  border: 0;
+  box-shadow: none;
+  color: inherit;
+}
+
+.route-copy-qr-button .route-copy-qr {
+  display: block;
+}
+
 .route-copy-qr {
   width: 220px;
   max-width: 100%;
+  pointer-events: none;
 }
 
 .route-copy-toolbar {
@@ -1218,12 +1265,33 @@ textarea.code {
   gap: 12px;
 }
 
+.route-copy-advanced {
+  padding-top: 2px;
+  border-top: 1px solid var(--line);
+}
+
+.route-copy-advanced summary {
+  cursor: pointer;
+  font-weight: 800;
+}
+
+.route-copy-advanced-body {
+  display: grid;
+  gap: 14px;
+  padding-top: 12px;
+}
+
 .route-copy-protocol-list {
   grid-template-columns: 1fr;
 }
 
 .route-copy-preview textarea.code {
   min-height: 180px;
+}
+
+.route-copy-empty {
+  padding: 16px 8px;
+  text-align: center;
 }
 
 .output-controls {

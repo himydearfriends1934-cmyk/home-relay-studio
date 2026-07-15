@@ -102,8 +102,28 @@ function normalizeRouteOutput(output) {
     ? item.protocols.map((value) => normalizeName(value).toLowerCase()).filter(Boolean)
     : [];
   item.nodeCount = toInt(item.nodeCount, 0) ?? 0;
+  item.linkCount = toInt(item.linkCount, item.links?.length || 0) ?? 0;
+  item.links = Array.isArray(item.links)
+    ? item.links.map(normalizeRouteOutputLink).filter(Boolean)
+    : [];
   item.code = String(item.code ?? '');
   item.updatedAt = normalizeName(item.updatedAt || '');
+  return item;
+}
+
+function normalizeRouteOutputLink(link) {
+  if (!link || typeof link !== 'object') return null;
+  const item = { ...(link ?? {}) };
+  item.index = toInt(item.index, 0) ?? 0;
+  item.displayName = normalizeName(item.displayName || '');
+  item.label = normalizeName(item.label || item.displayName || '');
+  item.protocol = normalizeName(item.protocol || '').toLowerCase();
+  item.protocolLabel = normalizeName(item.protocolLabel || '');
+  item.sourceName = normalizeName(item.sourceName || '');
+  item.egressName = normalizeName(item.egressName || '');
+  item.ruleName = normalizeName(item.ruleName || '');
+  item.tag = normalizeName(item.tag || '');
+  item.uri = String(item.uri ?? '').trim();
   return item;
 }
 

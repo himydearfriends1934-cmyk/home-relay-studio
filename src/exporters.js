@@ -406,7 +406,7 @@ function clashTransportOptions(item) {
   return {};
 }
 
-function buildUri(node) {
+export function buildUri(node) {
   if (!node.server || !node.port) return '';
   switch (node.protocol) {
     case 'vmess':

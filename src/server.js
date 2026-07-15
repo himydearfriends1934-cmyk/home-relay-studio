@@ -5,7 +5,7 @@ import { fileURLToPath } from 'node:url';
 import QRCode from 'qrcode';
 import { DEFAULT_LISTEN_PORT } from './constants.js';
 import { diagnoseState } from './diagnostics.js';
-import { getClientExport } from './exporters.js';
+import { buildUri, formatAssignmentName, getClientExport } from './exporters.js';
 import { generateNormalizedSnapshot, generateSingBoxConfig } from './generator.js';
 import { parseSubscriptionContent } from './parsers.js';
 import { getQrPayload } from './qr.js';
@@ -143,8 +143,18 @@ async function routeRequest(req, res) {
     const viewState = normalizeState(body?.state || state);
     const parsedSources = await loadParsedSources(viewState);
     const generated = generateSingBoxConfig(viewState, parsedSources);
+    const assignments = Array.isArray(generated.assignments)
+      ? generated.assignments.map((assignment) => ({
+          ...assignment,
+          uri: buildUri({
+            ...assignment.node,
+            name: formatAssignmentName(assignment, viewState.export?.nameTemplate),
+          }),
+        }))
+      : [];
     return sendJson(res, 200, {
       ...generated,
+      assignments,
       snapshot: generateNormalizedSnapshot(viewState, parsedSources),
     });
   }
