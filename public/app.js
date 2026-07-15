@@ -2406,8 +2406,16 @@ function numberField(path, label, value, extraClass = '') {
 }
 
 function checkboxField(path, label, checked, extraClass = '') {
-  const cls = extraClass ? `field ${extraClass}` : 'field';
-  return `<label class="${cls}"><span>${escapeHtml(label)}</span><input data-path="${escapeHtml(path)}" type="checkbox" ${checked ? 'checked' : ''} /></label>`;
+  const cls = extraClass ? `field checkbox-field ${extraClass}` : 'field checkbox-field';
+  return `
+    <label class="${cls}">
+      <span>${escapeHtml(label)}</span>
+      <span class="toggle-control">
+        <input data-path="${escapeHtml(path)}" type="checkbox" ${checked ? 'checked' : ''} />
+        <span class="toggle-track" aria-hidden="true"></span>
+      </span>
+    </label>
+  `;
 }
 
 function selectField(path, label, options, value, extraClass = '') {
