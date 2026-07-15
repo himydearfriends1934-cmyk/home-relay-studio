@@ -92,6 +92,8 @@ export function normalizeSource(source, index = 0) {
 
 function normalizeRouteOutput(output) {
   const item = { ...(output ?? {}) };
+  item.outputVersion = toInt(item.outputVersion, 0) ?? 0;
+  item.configFingerprint = String(item.configFingerprint ?? '');
   item.key = normalizeName(item.key || '');
   item.index = toInt(item.index, 0) ?? 0;
   item.title = normalizeName(item.title || '');

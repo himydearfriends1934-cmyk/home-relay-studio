@@ -57,6 +57,7 @@ const EXPORT_VIEWS = [
 
 const CLICK_FEEDBACK_SELECTOR = 'button, .button-link, summary, [data-route-set], [data-select-collection], [data-output-view], [data-view]';
 const IMPORT_RENDER_DELAY_MS = 300;
+const ROUTE_OUTPUT_VERSION = 2;
 
 const ui = {
   mode: 'config',
@@ -335,7 +336,12 @@ function getRouteOutputMap() {
     return new Map(outputs.map((output) => [output.key, output]));
   }
   const savedOutputs = Array.isArray(state.export?.routeOutputs) ? state.export.routeOutputs : [];
-  return new Map(savedOutputs.map((output) => [output.key, output]));
+  return new Map(savedOutputs.filter(isCurrentRouteOutput).map((output) => [output.key, output]));
+}
+
+function isCurrentRouteOutput(output) {
+  if (!output || typeof output !== 'object') return false;
+  return output.outputVersion === ROUTE_OUTPUT_VERSION && output.configFingerprint === getRouteConfigFingerprint();
 }
 
 function getRouteSetProtocolText(set) {
@@ -375,6 +381,8 @@ function buildRouteOutputSnapshots(generated) {
       })
       .filter((link) => link.uri);
     return {
+      outputVersion: ROUTE_OUTPUT_VERSION,
+      configFingerprint: getRouteConfigFingerprint(),
       key: set.key,
       index: set.index,
       title: set.title,
@@ -414,6 +422,39 @@ function buildRouteOutputCode(set, assignments, sourceNames, egressNames) {
     lines.push(`${index + 1}. ${assignment.node?.protocol || 'unknown'} | ${assignment.node?.name || 'unnamed'} -> ${assignment.egress?.name || assignment.egressId || 'egress'} | ${assignment.tag}`);
   }
   return lines.join('\n');
+}
+
+function getRouteConfigFingerprint() {
+  const exp = state.export || {};
+  return stableStringify({
+    sources: state.sources || [],
+    egresses: state.egresses || [],
+    rules: state.rules || [],
+    export: {
+      nameTemplate: exp.nameTemplate || '',
+      defaultEgressId: exp.defaultEgressId || '',
+      includeSelectors: exp.includeSelectors,
+      includeUrlTest: exp.includeUrlTest,
+      includeInbound: exp.includeInbound,
+      inboundTag: exp.inboundTag || '',
+      inboundListen: exp.inboundListen || '',
+      inboundPort: exp.inboundPort || '',
+      selectorTag: exp.selectorTag || '',
+      urlTestTag: exp.urlTestTag || '',
+      healthcheckUrl: exp.healthcheckUrl || '',
+      autoInterval: exp.autoInterval || '',
+    },
+  });
+}
+
+function stableStringify(value) {
+  if (Array.isArray(value)) return `[${value.map(stableStringify).join(',')}]`;
+  if (!value || typeof value !== 'object') return JSON.stringify(value);
+  return `{${Object.keys(value)
+    .filter((key) => key !== 'routeOutputs')
+    .sort()
+    .map((key) => `${JSON.stringify(key)}:${stableStringify(value[key])}`)
+    .join(',')}}`;
 }
 
 function formatRouteAssignmentName(assignment, fallbackIndex = 0) {
@@ -1454,7 +1495,7 @@ function onClick(event) {
     case 'copy-config':
       return runButtonAction(button, '复制配置', () => copyCurrentConfig());
     case 'open-route-copy-sheet':
-      return openRouteCopySheet(Number(button.dataset.routeSetIndex));
+      return runButtonAction(button, 'Open route copy panel', () => openRouteCopySheet(Number(button.dataset.routeSetIndex)));
     case 'copy-route-output': {
       const mode = button.dataset.copyMode || 'full';
       const label = getRouteCopyActionLabel(mode);
@@ -2128,6 +2169,7 @@ async function saveNow() {
 function queueSave(immediate) {
   ui.editRevision += 1;
   invalidatePreflight();
+  clearSavedRouteOutputs();
   clearTimeout(ui.saveTimer);
   setSaveStatus('pending');
   ui.saveTimer = setTimeout(() => {
@@ -2150,6 +2192,11 @@ function invalidatePreflight() {
   ui.generated = null;
   ui.preflight.error = '';
   if (shouldRender) renderOutput();
+}
+
+function clearSavedRouteOutputs() {
+  if (!state.export || !Array.isArray(state.export.routeOutputs) || state.export.routeOutputs.length === 0) return;
+  state.export.routeOutputs = [];
 }
 
 function setSaveStatus(status, error = '') {
@@ -2990,8 +3037,12 @@ function copyCurrentConfig() {
   return copyText(JSON.stringify(ui.generated.config, null, 2));
 }
 
-function openRouteCopySheet(index) {
-  const output = getRouteOutputByIndex(index);
+async function openRouteCopySheet(index) {
+  let output = getRouteOutputByIndex(index);
+  if (!output?.code) {
+    await generateConfig();
+    output = getRouteOutputByIndex(index);
+  }
   if (!output?.code) throw new Error('请先生成这个链路输出。');
   ui.routeCopySheet = {
     index,
