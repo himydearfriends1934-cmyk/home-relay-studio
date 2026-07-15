@@ -66,16 +66,26 @@ export function getClientExport(format, state, parsedSources, options = {}) {
   }
 
   if (id === 'shadowrocket') {
-    const proxies = generateShadowrocketProxies(state, singBox.assignments);
+    const config = generateShadowrocketConfig(state, singBox.assignments);
     return {
       ...meta,
-      body: yaml.dump({ proxies }, {
+      body: yaml.dump(config, {
         lineWidth: -1,
         noRefs: true,
         sortKeys: false,
       }),
-      nodeCount: proxies.length,
+      nodeCount: singBox.counts.nodes,
       warnings: singBox.assignmentWarnings,
+    };
+  }
+
+  if (singBox.assignments.some((assignment) => assignment.egress.protocol !== 'direct')) {
+    return {
+      ...meta,
+      body: '',
+      nodeCount: 0,
+      warnings: singBox.assignmentWarnings,
+      error: 'V2Ray URI subscriptions cannot carry a chained source-to-home-egress route. Use Shadowrocket, Clash, or sing-box.',
     };
   }
 
@@ -89,17 +99,8 @@ export function getClientExport(format, state, parsedSources, options = {}) {
   };
 }
 
-function generateShadowrocketProxies(state, assignments) {
-  const usedNames = new Set();
-  const proxies = [];
-  for (const assignment of assignments) {
-    const displayName = makeUniqueName(formatAssignmentName(assignment, state.export?.nameTemplate), usedNames);
-    const proxy = assignment.egress.protocol === 'direct'
-      ? buildClashProxy(assignment.node, displayName)
-      : buildClashProxy(assignment.egress, displayName);
-    proxies.push(proxy);
-  }
-  return proxies;
+function generateShadowrocketConfig(state, assignments) {
+  return generateClashConfig(state, assignments);
 }
 
 export function generateClashConfig(state, assignments) {

@@ -148,7 +148,12 @@ async function routeRequest(req, res) {
     const assignments = Array.isArray(generated.assignments)
       ? generated.assignments.map((assignment) => ({
           ...assignment,
-          uri: buildUri(buildAssignmentExportNode(assignment, viewState.export?.nameTemplate)),
+          uri: assignment.egress?.protocol === 'direct'
+            ? buildUri(buildAssignmentExportNode(assignment, viewState.export?.nameTemplate))
+            : '',
+          uriUnavailableReason: assignment.egress?.protocol === 'direct'
+            ? ''
+            : 'This route is chained; use a chain-capable subscription export instead of a single node URI.',
         }))
       : [];
     return sendJson(res, 200, {

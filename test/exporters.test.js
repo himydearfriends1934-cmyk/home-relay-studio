@@ -64,20 +64,23 @@ test('exports clash config with dialer proxy chain', () => {
   assert.match(output.body, /MATCH,relay-main/);
 });
 
-test('exports Shadowrocket subscriptions as flattened final egress nodes', () => {
+test('exports Shadowrocket subscriptions as chained source-to-egress configs', () => {
   const { state, parsedSources } = buildFixture();
   const output = getClientExport('shadowrocket', state, parsedSources);
   assert.equal(output.contentType, 'text/yaml; charset=utf-8');
+  assert.equal(output.nodeCount, 1);
   const config = yaml.load(output.body);
-  assert.deepEqual(Object.keys(config), ['proxies']);
   assert.ok(Array.isArray(config.proxies));
-  assert.ok(config.proxies.length > 0);
-  assert.equal(config.proxies.length, 1);
-  assert.equal(config.proxies[0].type, 'http');
-  assert.equal(config.proxies[0].server, 'isp.example.com');
-  assert.equal(config.proxies[0].name, 'france - node-a');
-  assert.equal(config.proxies[0]['dialer-proxy'], undefined);
-  assert.equal(output.body.includes('dialer-proxy:'), false);
+  const finalProxy = config.proxies.find((item) => item.type === 'http' && item.server === 'isp.example.com');
+  assert.ok(finalProxy);
+  assert.equal(finalProxy.name, 'france - node-a');
+  assert.ok(finalProxy['dialer-proxy']);
+  const frontProxy = config.proxies.find((item) => item.name === finalProxy['dialer-proxy']);
+  assert.ok(frontProxy);
+  assert.equal(frontProxy.type, 'vless');
+  assert.equal(frontProxy.server, 'example.com');
+  assert.match(output.body, /dialer-proxy:/);
+  assert.match(output.body, /MATCH,relay-main/);
 });
 
 test('keeps Shadowsocks plugin options in Shadowrocket subscriptions', () => {
@@ -104,15 +107,13 @@ test('keeps Shadowsocks plugin options in Shadowrocket subscriptions', () => {
   });
 });
 
-test('exports V2Ray URI subscriptions as flattened final egress nodes', () => {
+test('rejects V2Ray URI exports for chained source-to-egress routes', () => {
   const { state, parsedSources } = buildFixture();
   const output = getClientExport('v2ray', state, parsedSources);
-  const decoded = Buffer.from(output.body, 'base64').toString('utf8');
 
-  assert.equal(output.nodeCount, 1);
-  assert.equal(output.error, undefined);
-  assert.match(decoded, /^http:\/\/user:pass@isp\.example\.com:10001/);
-  assert.match(decoded, /#france%20-%20node-a$/);
+  assert.equal(output.nodeCount, 0);
+  assert.equal(output.body, '');
+  assert.match(output.error, /chained source-to-home-egress route/i);
 });
 
 test('exports V2RayN URI subscriptions for direct assignments', () => {
