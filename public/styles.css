@@ -81,6 +81,7 @@ button.click-feedback,
 .button-link.click-feedback,
 .tools-menu > summary.click-feedback,
 .more-menu > summary.click-feedback,
+.route-copy-menu > summary.click-feedback,
 .advanced > summary.click-feedback,
 .entity-card-select.click-feedback {
   transform: translateY(1px) scale(0.985);
@@ -292,12 +293,14 @@ textarea.code {
 }
 
 .tools-menu,
-.more-menu {
+.more-menu,
+.route-copy-menu {
   position: relative;
 }
 
 .tools-menu > summary,
-.more-menu > summary {
+.more-menu > summary,
+.route-copy-menu > summary {
   list-style: none;
   border: 1px solid var(--line-strong);
   background: #fff;
@@ -307,16 +310,19 @@ textarea.code {
 }
 
 .tools-menu > summary::-webkit-details-marker,
-.more-menu > summary::-webkit-details-marker {
+.more-menu > summary::-webkit-details-marker,
+.route-copy-menu > summary::-webkit-details-marker {
   display: none;
 }
 
-.tools-menu > summary {
+.tools-menu > summary,
+.route-copy-menu > summary {
   padding: 0.45rem 0.7rem;
 }
 
 .tools-popover,
-.more-popover {
+.more-popover,
+.route-copy-popover {
   position: absolute;
   right: 0;
   z-index: 20;
@@ -497,6 +503,65 @@ textarea.code {
 
 .route-set-row.is-off {
   opacity: 0.74;
+}
+
+.route-copy-menu {
+  display: inline-block;
+}
+
+.route-copy-menu > summary {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.route-copy-menu > summary::after {
+  content: "▾";
+  color: var(--muted);
+  font-size: 11px;
+  line-height: 1;
+}
+
+.route-copy-menu[open] > summary {
+  background: var(--accent-soft);
+  border-color: #9fd6d0;
+  color: var(--accent);
+}
+
+.route-copy-popover {
+  top: 34px;
+  min-width: 300px;
+  max-width: min(360px, calc(100vw - 32px));
+}
+
+.route-copy-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+}
+
+.route-copy-actions {
+  display: grid;
+  gap: 6px;
+}
+
+.route-copy-divider {
+  height: 1px;
+  background: var(--line);
+  margin: 2px 0;
+}
+
+.route-copy-label {
+  color: var(--muted);
+  font-size: 12px;
+  font-weight: 800;
+}
+
+.route-copy-popover .protocol-check-list {
+  grid-template-columns: 1fr;
+  max-height: 220px;
+  overflow: auto;
 }
 
 .route-output-code {
