@@ -912,11 +912,19 @@ function renderRule(rule, index) {
   const egressOptions = state.egresses.map((egress) => ({ value: egress.id, label: egress.name, meta: `${egress.protocol} ${egress.id}` }));
   const nodeChoices = getRuleNodeChoices(rule, index);
   const nodeLocks = getRuleNodeLocks(rule, index, nodeChoices);
+  const ruleStats = getRuleStats(rule, index, nodeChoices);
   return `
     <div class="entity" data-kind="rule" data-id="${rule.id}">
       <div class="entity-summary">
-        <div class="summary-left">
+        <div class="summary-left rule-summary-left">
           <span class="summary-title">${escapeHtml(rule.name)}</span>
+          <div class="rule-summary-stats">
+            ${renderRuleStatChip('来源', ruleStats.sourceCount, 'sources', `当前规则命中的来源数：${ruleStats.sourceCount}`)}
+            ${renderRuleStatChip('节点', ruleStats.selectedCount, 'nodes', `当前规则选中的节点数：${ruleStats.selectedCount}`)}
+            ${renderRuleStatChip('协议', ruleStats.protocolCount, 'protocols', ruleStats.protocolText)}
+            ${renderRuleStatChip(ruleStats.outputMode === 'generated' ? '输出' : '预估', ruleStats.outputCount, ruleStats.outputMode, ruleStats.outputHint)}
+          </div>
+          <div class="rule-summary-note">${escapeHtml(ruleStats.protocolText)}</div>
         </div>
         <div class="summary-actions">
           ${renderMoreActions('rule', rule.id)}
@@ -938,7 +946,7 @@ function renderRule(rule, index) {
             ${checkboxField(`rules.${index}.stop`, '匹配后停止', rule.stop)}
             ${textField(`rules.${index}.match.sourceNameRegex`, '来源名称正则', rule.match?.sourceNameRegex || '', 'wide')}
             ${textField(`rules.${index}.match.nodeNameRegex`, '节点名称正则', rule.match?.nodeNameRegex || '', 'wide')}
-            ${nodeSummaryField('已选节点', summarizeNodeSelection(rule), 'wide')}
+            ${nodeSummaryField('规则统计', summarizeNodeSelectionDetail(rule, index, nodeChoices, ruleStats), 'wide')}
             ${textField(`rules.${index}.notes`, '备注', rule.notes, 'wide')}
           </div>
         </details>
@@ -1115,6 +1123,72 @@ function getRuleNodeLocks(rule, ruleIndex, nodeChoices) {
     }
   }
   return locks;
+}
+
+function getRuleStats(rule, ruleIndex, nodeChoices = []) {
+  const visibleChoices = Array.isArray(nodeChoices) ? nodeChoices.filter((choice) => !choice.placeholder) : [];
+  const selectedChoices = visibleChoices.filter((choice) => isRuleNodeChoiceChecked(rule || {}, choice));
+  const selectedProtocols = uniqueStrings(selectedChoices.map((choice) => choice.protocol).filter(Boolean));
+  const snapshot = getRuleOutputSnapshotByRule(rule);
+  const targetCount = Array.isArray(rule?.targets)
+    ? rule.targets.filter((targetId) => state.egresses.some((egress) => egress.id === targetId && egress.enabled !== false)).length
+    : 0;
+  const outputCount = snapshot
+    ? Number(snapshot.nodeCount || snapshot.linkCount || 0)
+    : estimateRuleOutputCount(selectedChoices.length, targetCount);
+  return {
+    sourceCount: getRuleSourceIds(rule || {}).length,
+    selectedCount: selectedChoices.length,
+    protocolCount: selectedProtocols.length,
+    protocolText: selectedProtocols.length
+      ? selectedProtocols.map((protocol) => PROTOCOL_LABELS[protocol] || protocol).join(', ')
+      : '全部协议',
+    outputCount,
+    outputMode: snapshot ? 'generated' : 'preview',
+    outputHint: snapshot
+      ? '已生成的输出节点数'
+      : targetCount > 0
+        ? `预估输出：${selectedChoices.length} × ${targetCount}`
+        : '尚未选择可用目标出口',
+  };
+}
+
+function getRuleOutputSnapshotByRule(rule) {
+  if (!rule) return null;
+  if (ui.generated) {
+    const outputs = buildRouteOutputSnapshots(ui.generated);
+    const output = outputs.find((item) => item.ruleId === rule.id);
+    if (output) return output;
+  }
+  if (ui.editRevision === 0) {
+    const savedOutputs = Array.isArray(state.export?.routeOutputs) ? state.export.routeOutputs : [];
+    const output = savedOutputs.find((item) => item.ruleId === rule.id || item.key === `rule:${rule.id}`);
+    if (output) return output;
+  }
+  return null;
+}
+
+function estimateRuleOutputCount(selectedCount, targetCount) {
+  if (!Number.isFinite(selectedCount) || selectedCount <= 0) return 0;
+  if (!Number.isFinite(targetCount) || targetCount <= 0) return 0;
+  return selectedCount * targetCount;
+}
+
+function summarizeNodeSelectionDetail(rule, ruleIndex = state.rules.findIndex((candidate) => candidate.id === rule.id), nodeChoices = null, stats = null) {
+  const resolvedChoices = Array.isArray(nodeChoices) ? nodeChoices : getRuleNodeChoices(rule, ruleIndex);
+  const visibleChoices = resolvedChoices.filter((choice) => !choice.placeholder);
+  const selectedChoices = visibleChoices.filter((choice) => isRuleNodeChoiceChecked(rule || {}, choice));
+  const selectedProtocols = uniqueStrings(selectedChoices.map((choice) => choice.protocol).filter(Boolean));
+  const selectedSources = uniqueStrings(selectedChoices.map((choice) => choice.sourceId).filter(Boolean));
+  const resolvedStats = stats || getRuleStats(rule, ruleIndex, resolvedChoices);
+  if (selectedChoices.length === 0) {
+    return `来源 ${resolvedStats.sourceCount} · 节点 0 · 协议 0 · 输出 0`;
+  }
+  const protocolText = selectedProtocols.length
+    ? selectedProtocols.map((protocol) => PROTOCOL_LABELS[protocol] || protocol).join(', ')
+    : '全部协议';
+  const outputSuffix = resolvedStats.outputMode === 'preview' ? '（预估）' : '';
+  return `来源 ${selectedSources.length || resolvedStats.sourceCount} · 节点 ${selectedChoices.length} · 协议 ${selectedProtocols.length} · 输出 ${resolvedStats.outputCount}${outputSuffix} · ${protocolText}`;
 }
 
 function rulesOverlapSources(a, b) {
@@ -2571,6 +2645,16 @@ function textareaField(path, label, value, extraClass = '') {
 function nodeSummaryField(label, value, extraClass = '') {
   const cls = extraClass ? `field ${extraClass}` : 'field';
   return `<div class="${cls}"><span>${escapeHtml(label)}</span><div class="node-summary-box">${escapeHtml(value || '未选择')}</div></div>`;
+}
+
+function renderRuleStatChip(label, count, mode, hint = '') {
+  const safeHint = String(hint || '').trim();
+  return `
+    <span class="rule-summary-stat" data-mode="${escapeHtml(mode || 'preview')}" title="${escapeHtml(safeHint || `${label} ${count}`)}">
+      <strong>${escapeHtml(count)}</strong>
+      <small>${escapeHtml(label)}</small>
+    </span>
+  `;
 }
 
 function normalizeSelectValue(value) {
