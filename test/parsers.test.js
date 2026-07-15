@@ -29,6 +29,32 @@ proxies:
   assert.equal(parsed.nodes[0].server, '1.2.3.4');
 });
 
+test('source format hints parse shared client subscription shapes', () => {
+  const clashText = `
+proxies:
+  - name: hinted-vless
+    type: vless
+    server: example.com
+    port: 443
+    uuid: 11111111-1111-1111-1111-111111111111
+`;
+  for (const formatHint of ['clash', 'shadowrocket', 'throne', 'sfi', 'sfa', 'sfm']) {
+    const parsed = parseSubscriptionContent(clashText, { id: 'src-1', name: 'Demo', formatHint });
+    assert.equal(parsed.nodes.length, 1, formatHint);
+    assert.equal(parsed.nodes[0].protocol, 'vless', formatHint);
+  }
+
+  const uriText = Buffer.from(
+    'vless://11111111-1111-1111-1111-111111111111@example.com:443?encryption=none#hinted-uri',
+    'utf8',
+  ).toString('base64');
+  for (const formatHint of ['v2rayn', 'v2rayng', 'uri']) {
+    const parsed = parseSubscriptionContent(uriText, { id: 'src-1', name: 'Demo', formatHint });
+    assert.equal(parsed.nodes.length, 1, formatHint);
+    assert.equal(parsed.nodes[0].protocol, 'vless', formatHint);
+  }
+});
+
 test('parses base64 sing-box config', () => {
   const source = { id: 'src-1', name: 'Demo' };
   const json = JSON.stringify({
@@ -44,6 +70,25 @@ test('parses base64 sing-box config', () => {
   });
   const text = Buffer.from(json, 'utf8').toString('base64');
   const parsed = parseSubscriptionContent(text, source);
+  assert.equal(parsed.nodes.length, 1);
+  assert.equal(parsed.nodes[0].protocol, 'vmess');
+});
+
+test('parses sing-box yaml config', () => {
+  const source = { id: 'src-1', name: 'Demo', formatHint: 'sing-box' };
+  const parsed = parseSubscriptionContent(
+    `
+outbounds:
+  - type: vmess
+    tag: yaml-vmess
+    server: example.com
+    server_port: 443
+    uuid: 11111111-1111-1111-1111-111111111111
+`,
+    source,
+  );
+
+  assert.equal(parsed.format, 'sing-box');
   assert.equal(parsed.nodes.length, 1);
   assert.equal(parsed.nodes[0].protocol, 'vmess');
 });

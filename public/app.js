@@ -12,7 +12,36 @@ const PROTOCOL_LABELS = {
   tuic: 'TUIC',
 };
 const SOURCE_KIND_OPTIONS = ['url', 'text'];
-const FORMAT_OPTIONS = ['auto', 'sing-box', 'clash', 'uri', 'json', 'yaml'];
+const FORMAT_OPTIONS = [
+  { value: 'auto', label: '自适应' },
+  { value: 'sing-box', label: 'Sing-box' },
+  { value: 'clash', label: 'Clash 订阅' },
+  { value: 'shadowrocket', label: 'ShadowRocket 订阅' },
+  { value: 'v2rayn', label: 'V2RayN 订阅' },
+  { value: 'v2rayng', label: 'V2RayNG 订阅' },
+  { value: 'throne', label: 'Throne 订阅' },
+  { value: 'sfi', label: 'SFI 订阅' },
+  { value: 'sfa', label: 'SFA 订阅' },
+  { value: 'sfm', label: 'SFM 订阅' },
+  { value: 'uri', label: 'URI 列表' },
+  { value: 'json', label: 'JSON' },
+  { value: 'yaml', label: 'YAML' },
+];
+const FORMAT_HINT_LABELS = {
+  auto: '自适应',
+  'sing-box': 'Sing-box',
+  clash: 'Clash 订阅',
+  shadowrocket: 'ShadowRocket 订阅',
+  v2rayn: 'V2RayN 订阅',
+  v2rayng: 'V2RayNG 订阅',
+  throne: 'Throne 订阅',
+  sfi: 'SFI 订阅',
+  sfa: 'SFA 订阅',
+  sfm: 'SFM 订阅',
+  uri: 'URI 列表',
+  json: 'JSON',
+  yaml: 'YAML',
+};
 const TARGET_MODE_OPTIONS = ['append', 'replace'];
 const ROUTE_COLORS = ['#0f766e', '#b45309', '#2563eb', '#be123c', '#7c3aed', '#15803d', '#c2410c', '#0369a1'];
 const EXPORT_FORMATS = [
@@ -737,7 +766,7 @@ function renderEntityIcon(collection, item) {
 }
 
 function summarizeSourceCard(source) {
-  return [source.kind || 'url', source.sameVps ? 'same VPS' : 'remote', source.formatHint || 'auto', source.id].filter(Boolean).join(' | ');
+  return [source.kind || 'url', source.sameVps ? 'same VPS' : 'remote', formatHintLabel(source.formatHint), source.id].filter(Boolean).join(' | ');
 }
 
 function summarizeEgressCard(egress) {
@@ -748,6 +777,11 @@ function summarizeEgressCard(egress) {
 function summarizeRuleCard(rule) {
   const targetCount = Array.isArray(rule.targets) ? rule.targets.length : 0;
   return [`priority ${rule.priority ?? 0}`, rule.targetMode || 'replace', `${targetCount} target${targetCount === 1 ? '' : 's'}`].join(' | ');
+}
+
+function formatHintLabel(value) {
+  const key = String(value || 'auto').toLowerCase();
+  return FORMAT_HINT_LABELS[key] || key;
 }
 
 function ensureActiveItem(collection) {

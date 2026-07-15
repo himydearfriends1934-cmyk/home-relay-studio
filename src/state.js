@@ -80,7 +80,7 @@ export function normalizeSource(source, index = 0) {
   item.sameVps = Boolean(item.sameVps);
   item.localUrl = normalizeName(item.localUrl || '');
   item.content = String(item.content ?? '');
-  item.formatHint = normalizeName(item.formatHint || 'auto') || 'auto';
+  item.formatHint = normalizeName(item.formatHint || 'auto').toLowerCase() || 'auto';
   item.enabled = item.enabled !== false;
   item.notes = normalizeName(item.notes || '');
   item.headersJson = String(item.headersJson ?? '');

@@ -2,7 +2,21 @@ export const DEFAULT_LISTEN_PORT = 8787;
 export const DEFAULT_STATE_FILE = 'data/state.json';
 export const DEFAULT_HEALTHCHECK_URL = 'https://www.gstatic.com/generate_204';
 
-export const SOURCE_FORMATS = ['auto', 'sing-box', 'clash', 'uri', 'json', 'yaml'];
+export const SOURCE_FORMATS = [
+  'auto',
+  'sing-box',
+  'clash',
+  'shadowrocket',
+  'v2rayn',
+  'v2rayng',
+  'throne',
+  'sfi',
+  'sfa',
+  'sfm',
+  'uri',
+  'json',
+  'yaml',
+];
 export const EGRESS_PROTOCOLS = [
   'direct',
   'http',

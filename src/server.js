@@ -3,6 +3,7 @@ import http from 'node:http';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import QRCode from 'qrcode';
+import { expandClashProxyProviders } from './clash-providers.js';
 import { DEFAULT_LISTEN_PORT } from './constants.js';
 import { diagnoseState } from './diagnostics.js';
 import { buildUri, formatAssignmentName, getClientExport } from './exporters.js';
@@ -299,7 +300,11 @@ async function loadParsedSources(viewState) {
 
 async function loadSourceContent(source) {
   if (source.kind === 'text') {
-    return source.content || '';
+    const content = source.content || '';
+    const expanded = await expandClashProxyProviders(content, {
+      baseUrl: source.url || '',
+    });
+    return expanded.content || content;
   }
   const resolvedUrl = resolveSourceFetchUrl(source);
   if (!resolvedUrl) {
@@ -325,7 +330,12 @@ async function loadSourceContent(source) {
   if (!response.ok) {
     throw new Error(`HTTP ${response.status} while fetching source.`);
   }
-  return response.text();
+  const rawContent = await response.text();
+  const expanded = await expandClashProxyProviders(rawContent, {
+    baseUrl: resolvedUrl,
+    headers: customHeaders,
+  });
+  return expanded.content || rawContent;
 }
 
 async function serveStatic(req, res, pathname) {

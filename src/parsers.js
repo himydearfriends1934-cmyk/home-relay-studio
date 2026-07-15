@@ -13,10 +13,13 @@ import {
 import { SOURCE_NODE_PROTOCOLS } from './constants.js';
 
 const SKIP_SING_BOX_TYPES = new Set(['selector', 'urltest', 'direct', 'block', 'dns', 'wireguard', 'unknown']);
+const URI_HINTS = new Set(['uri', 'v2rayn', 'v2rayng']);
+const CLASH_HINTS = new Set(['clash', 'shadowrocket', 'throne', 'sfi', 'sfa', 'sfm']);
 
 export function parseSubscriptionContent(text, source = {}) {
   const cleaned = trimBom(text);
-  const result = parseNestedContent(cleaned, source, 0);
+  const hint = normalizeName(source.formatHint || 'auto').toLowerCase();
+  const result = parseNestedContent(cleaned, source, 0, hint);
   const nodes = [];
   const warnings = [...(result.warnings || [])];
   for (const node of result.nodes || []) {
@@ -40,7 +43,7 @@ function invalidNodeReason(node) {
   return '';
 }
 
-function parseNestedContent(text, source, depth) {
+function parseNestedContent(text, source, depth, hint = 'auto') {
   if (depth > 4) {
     return {
       format: 'unknown',
@@ -50,28 +53,10 @@ function parseNestedContent(text, source, depth) {
     };
   }
 
-  const json = safeJsonParse(text);
-  if (json !== null) {
-    if (isPlainObject(json)) {
-      if (Array.isArray(json.outbounds)) {
-        const singBox = parseSingBoxObject(json, source);
-        if (singBox.nodes.length || singBox.warnings.length) return singBox;
-      }
-      if (Array.isArray(json.proxies)) {
-        const clash = parseClashObject(json, source);
-        if (clash.nodes.length || clash.warnings.length) return clash;
-      }
-    }
-    if (Array.isArray(json)) {
-      const clash = parseClashObject({ proxies: json }, source);
-      if (clash.nodes.length || clash.warnings.length) return clash;
-    }
-  }
-
   if (looksLikeBase64(text) && !text.includes('://')) {
     const decoded = decodeLooseBase64(text);
     if (decoded && decoded !== text) {
-      const nested = parseNestedContent(decoded, source, depth + 1);
+      const nested = parseNestedContent(decoded, source, depth + 1, hint);
       if (nested.nodes.length || nested.warnings.length) {
         nested.format = nested.format === 'unknown' ? 'base64->' + nested.format : `base64->${nested.format}`;
         nested.warnings = ['Decoded base64 payload.'].concat(nested.warnings || []);
@@ -80,14 +65,8 @@ function parseNestedContent(text, source, depth) {
     }
   }
 
-  const yamlObject = parseYamlObject(text);
-  if (yamlObject) {
-    const clash = parseClashObject(yamlObject, source);
-    if (clash.nodes.length || clash.warnings.length) return clash;
-  }
-
-  const uriList = parseUriList(text, source);
-  if (uriList.nodes.length || uriList.warnings.length) return uriList;
+  const structured = parseStructuredByHint(text, source, hint);
+  if (structured.nodes.length || structured.warnings.length) return structured;
 
   return {
     format: 'unknown',
@@ -460,6 +439,70 @@ function parseSsUri(line, source) {
     requiresUdp: inferRequiresUdp('shadowsocks'),
     original: { format: 'ss-uri', name: normalizeName(name || '') },
   };
+}
+
+function parseStructuredJson(json, source) {
+  if (isPlainObject(json)) {
+    if (Array.isArray(json.outbounds)) {
+      const singBox = parseSingBoxObject(json, source);
+      if (singBox.nodes.length || singBox.warnings.length) return singBox;
+    }
+    if (Array.isArray(json.proxies)) {
+      const clash = parseClashObject(json, source);
+      if (clash.nodes.length || clash.warnings.length) return clash;
+    }
+  }
+  if (Array.isArray(json)) {
+    const clash = parseClashObject({ proxies: json }, source);
+    if (clash.nodes.length || clash.warnings.length) return clash;
+  }
+  return { format: 'json', nodes: [], warnings: [], errors: [] };
+}
+
+function parseStructuredYaml(yamlObject, source) {
+  if (isPlainObject(yamlObject) && Array.isArray(yamlObject.outbounds)) {
+    const singBox = parseSingBoxObject(yamlObject, source);
+    if (singBox.nodes.length || singBox.warnings.length) return singBox;
+  }
+  const clash = parseClashObject(yamlObject, source);
+  if (clash.nodes.length || clash.warnings.length) return clash;
+  return { format: 'yaml', nodes: [], warnings: [], errors: [] };
+}
+
+function parseStructuredByHint(text, source, hint) {
+  const strategies = getStructuredStrategies(hint);
+  let fallback = null;
+  for (const strategy of strategies) {
+    const result = strategy(text, source);
+    if (result.nodes.length) return result;
+    if (!fallback && result.warnings.length) fallback = result;
+  }
+  return fallback || { format: 'unknown', nodes: [], warnings: [], errors: [] };
+}
+
+function getStructuredStrategies(hint) {
+  if (URI_HINTS.has(hint)) {
+    return [parseUriList, parseJsonText, parseYamlText];
+  }
+  if (CLASH_HINTS.has(hint) || hint === 'sing-box' || hint === 'json' || hint === 'auto') {
+    return [parseJsonText, parseYamlText, parseUriList];
+  }
+  if (hint === 'yaml') {
+    return [parseYamlText, parseJsonText, parseUriList];
+  }
+  return [parseJsonText, parseYamlText, parseUriList];
+}
+
+function parseJsonText(text, source) {
+  const json = safeJsonParse(text);
+  if (json === null) return { format: 'json', nodes: [], warnings: [], errors: [] };
+  return parseStructuredJson(json, source);
+}
+
+function parseYamlText(text, source) {
+  const yamlObject = parseYamlObject(text);
+  if (!yamlObject) return { format: 'yaml', nodes: [], warnings: [], errors: [] };
+  return parseStructuredYaml(yamlObject, source);
 }
 
 function firstText(value) {
