@@ -374,6 +374,14 @@ textarea.code {
   font-size: 13px;
 }
 
+.route-set-actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 8px;
+}
+
 .route-set-count {
   display: grid;
   place-items: center;
@@ -444,14 +452,42 @@ textarea.code {
   white-space: nowrap;
 }
 
-.route-set-main span,
-.route-set-status {
+.route-set-main span {
   color: var(--muted);
   font-size: 12px;
 }
 
 .route-set-status {
-  justify-self: end;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px 12px;
+  padding: 9px 10px;
+  color: var(--muted);
+  background: var(--panel-2);
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  font-size: 12px;
+}
+
+.route-set-status strong {
+  color: var(--text);
+}
+
+.route-set-status[data-status="done"] {
+  background: #effbf8;
+  border-color: #bfe7e2;
+}
+
+.route-set-status[data-status="working"] {
+  background: #eef6ff;
+  border-color: #bfd7f5;
+}
+
+.route-set-status[data-status="failed"] {
+  color: var(--danger);
+  background: var(--danger-soft);
+  border-color: #f2b8b5;
 }
 
 .route-set-table-wrap {
@@ -1290,6 +1326,9 @@ textarea.code {
 }
 
 .route-copy-empty {
+  display: grid;
+  justify-items: center;
+  gap: 10px;
   padding: 16px 8px;
   text-align: center;
 }

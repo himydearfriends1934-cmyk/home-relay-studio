@@ -139,21 +139,6 @@ function renderShell() {
         </section>
       </div>
 
-      <div class="workflow-grid full-row">
-        <section class="band full">
-          <div class="section-head">
-            <div>
-              <h2>订阅输出</h2>
-              <div class="meta">先生成预检，再复制、扫码或一键导入。</div>
-            </div>
-          </div>
-          <div id="output-panel"></div>
-          <details class="advanced export-settings" data-details-key="export:advanced" ${detailsOpen('export:advanced')}>
-            <summary>高级导出设置</summary>
-            <div class="field-grid" id="export-grid"></div>
-          </details>
-        </section>
-      </div>
     </div>
   `;
 }
@@ -163,7 +148,8 @@ function renderEditors() {
   renderCollection('sources');
   renderCollection('egresses');
   renderCollection('rules');
-  root.querySelector('#export-grid').innerHTML = renderExportGrid();
+  const exportGrid = root.querySelector('#export-grid');
+  if (exportGrid) exportGrid.innerHTML = renderExportGrid();
   renderRouteCopySheet();
   updateCounts();
 }
@@ -173,6 +159,7 @@ function renderRouteSetPanel() {
   if (!panel) return;
   const sets = getRouteSets();
   const outputMap = getRouteOutputMap();
+  const outputs = Array.from(outputMap.values()).filter((output) => output?.code);
   const rows = sets.map((set) => {
     const active =
       (set.sourceIds[0] && ui.activeItems.sources === set.sourceIds[0]) ||
@@ -209,7 +196,7 @@ function renderRouteSetPanel() {
         <td>${escapeHtml(protocols)}</td>
         <td>
           <pre class="route-output-code">${escapeHtml(outputLines)}</pre>
-          <div class="muted">${output ? `${output.nodeCount} output nodes | saved ${escapeHtml(output.updatedAt || '')}` : 'not generated yet'}</div>
+          <div class="muted">${output ? `${formatNodeCount(output.nodeCount)} | saved ${escapeHtml(output.updatedAt || '')}` : 'not generated yet'}</div>
         </td>
         <td>
           ${renderRouteCopyMenu(set, output)}
@@ -223,8 +210,12 @@ function renderRouteSetPanel() {
         <h2>Route Links</h2>
         <div class="meta">Saved source / egress / rule outputs. Click a row to edit that link.</div>
       </div>
-      <div class="route-set-count">${sets.length}</div>
+      <div class="route-set-actions">
+        <button class="primary" data-action="generate">生成 / 预检</button>
+        <div class="route-set-count">${sets.length}</div>
+      </div>
     </div>
+    ${renderRouteSetStatus(outputs)}
     ${rows
       ? `<div class="route-set-table-wrap">
           <table class="route-set-table">
@@ -244,6 +235,25 @@ function renderRouteSetPanel() {
         </div>`
       : '<div class="muted">No saved route links yet. Add a source, egress, and rule to create one.</div>'}
   `;
+}
+
+function renderRouteSetStatus(outputs) {
+  if (ui.preflight.running) {
+    return '<div class="route-set-status" data-status="working"><strong>正在生成</strong><span>正在刷新链路输出...</span></div>';
+  }
+  if (ui.preflight.error) {
+    return `
+      <div class="route-set-status" data-status="failed">
+        <strong>生成失败</strong>
+        <span>${escapeHtml(ui.preflight.error)}</span>
+        <button data-action="generate">重试</button>
+      </div>
+    `;
+  }
+  const count = Array.isArray(outputs) ? outputs.length : 0;
+  if (count === 0) return '';
+  const nodes = outputs.reduce((total, output) => total + Number(output.nodeCount || 0), 0);
+  return `<div class="route-set-status" data-status="done"><strong>已生成</strong><span>${count} 条链路 · ${formatNodeCount(nodes)}</span></div>`;
 }
 
 function getRouteSets() {
@@ -297,6 +307,10 @@ function getRouteOutputMap() {
 function getRouteSetProtocolText(set) {
   const protocols = Array.isArray(set.protocols) && set.protocols.length > 0 ? set.protocols : PROTOCOL_OPTIONS;
   return protocols.map((protocol) => PROTOCOL_LABELS[protocol] || protocol).join(', ');
+}
+
+function formatNodeCount(count) {
+  return `${Number(count || 0)} 个节点`;
 }
 
 function buildRouteOutputSnapshots(generated) {
@@ -383,8 +397,6 @@ function renderRouteCopySheet() {
   }
   const { set, sheet, output } = data;
   const tab = sheet.tab === 'links' ? 'links' : 'subscription';
-  const primaryFormat = ui.exportFormat || 'shadowrocket';
-  const secondaryFormat = primaryFormat === 'sing-box' ? 'clash' : 'sing-box';
   const sourceNames = set?.sourceIds?.map((id) => state.sources.find((item) => item.id === id)?.name || id).join(', ') || 'Any source';
   const egressNames = set?.egressIds?.map((id) => state.egresses.find((item) => item.id === id)?.name || id).join(', ') || 'No egress';
   panel.innerHTML = `
@@ -403,23 +415,43 @@ function renderRouteCopySheet() {
         <button data-route-copy-tab="links" class="${tab === 'links' ? 'active' : ''}">LINKS</button>
       </div>
       ${tab === 'subscription'
-        ? renderRouteCopySubscriptionTab(primaryFormat, secondaryFormat)
+        ? renderRouteCopySubscriptionTab()
         : renderRouteCopyLinksTab(output)}
     </section>
   `;
 }
 
-function renderRouteCopySubscriptionTab(primaryFormat, secondaryFormat) {
-  const primaryMeta = EXPORT_FORMATS.find((item) => item.id === primaryFormat) || EXPORT_FORMATS[0];
-  const secondaryMeta = EXPORT_FORMATS.find((item) => item.id === secondaryFormat) || EXPORT_FORMATS[0];
+function renderRouteCopySubscriptionTab() {
   return `
     <div class="route-copy-sheet-body">
       <div class="route-copy-card-grid">
-        ${renderRouteCopyQrCard(primaryMeta, primaryFormat, 'Subscription', '当前导出格式')}
-        ${renderRouteCopyQrCard(secondaryMeta, secondaryFormat, secondaryFormat === 'sing-box' ? 'JSON Subscription' : 'Alternate Subscription', '备用输出')}
+        ${EXPORT_FORMATS.map((meta) => renderRouteCopyQrCard(
+          meta,
+          meta.id,
+          getSubscriptionCardLabel(meta.id),
+          getSubscriptionCardHint(meta.id),
+        )).join('')}
       </div>
     </div>
   `;
+}
+
+function getSubscriptionCardLabel(format) {
+  return {
+    shadowrocket: 'Subscription',
+    'sing-box': 'JSON Subscription',
+    clash: 'Clash Subscription',
+    v2ray: 'URI Subscription',
+  }[format] || 'Subscription';
+}
+
+function getSubscriptionCardHint(format) {
+  return {
+    shadowrocket: 'Shadowrocket 导入',
+    'sing-box': 'sing-box JSON',
+    clash: 'Clash / Mihomo',
+    v2ray: 'V2RayN / V2RayNG',
+  }[format] || '订阅链接';
 }
 
 function renderRouteCopyQrCard(meta, format, label, hint) {
@@ -471,13 +503,13 @@ function renderRouteCopyLinksTab(output) {
   return `
     <div class="route-copy-sheet-body">
       <div class="route-copy-sheet-summary">
-        <strong>${Number(links.length || output.nodeCount || 0)} nodes</strong>
+        <strong>${formatNodeCount(links.length || output.nodeCount || 0)}</strong>
         <span class="muted">点击二维码直接复制对应链接</span>
       </div>
       <div class="route-copy-link-list">
         ${links.length > 0
           ? links.map((link) => renderRouteCopyLinkCard(link)).join('')
-          : '<div class="muted route-copy-empty">当前没有可复制的节点链接，重新生成后会显示二维码。</div>'}
+          : '<div class="route-copy-empty"><span class="muted">当前链路还没有二维码链接。</span><button class="primary" data-action="generate">生成 / 预检</button></div>'}
       </div>
       <details class="route-copy-advanced">
         <summary>协议筛选</summary>
@@ -1600,6 +1632,7 @@ async function testSource(id) {
 async function generateConfig() {
   ui.mode = 'config';
   ui.preflight = { running: true, error: '' };
+  renderRouteSetPanel();
   updateGenerateButton();
   renderOutput();
   try {
@@ -1624,8 +1657,8 @@ async function generateConfig() {
     throw error;
   } finally {
     ui.preflight.running = false;
-    updateGenerateButton();
     renderRouteSetPanel();
+    updateGenerateButton();
     renderOutput();
   }
 }
@@ -1745,16 +1778,17 @@ function setSaveStatus(status, error = '') {
 }
 
 function updateGenerateButton() {
-  const button = root.querySelector('[data-action="generate"]');
-  if (!button) return;
-  button.disabled = ui.preflight.running;
-  button.textContent = ui.preflight.running ? '正在预检…' : '生成 / 预检';
+  root.querySelectorAll('[data-action="generate"]').forEach((button) => {
+    button.disabled = ui.preflight.running;
+    button.textContent = ui.preflight.running ? '正在预检…' : '生成 / 预检';
+  });
 }
 
 function renderOutput() {
   const panel = root.querySelector('#output-panel');
-  if (!panel) return;
-  panel.innerHTML = ui.mode === 'config' ? renderExportOutput() : renderDiagnoseOutput();
+  if (panel) {
+    panel.innerHTML = ui.mode === 'config' ? renderExportOutput() : renderDiagnoseOutput();
+  }
   renderRouteCopySheet();
   root.querySelectorAll('[data-view]').forEach((button) => {
     button.classList.toggle('active', button.dataset.view === ui.mode);
