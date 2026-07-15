@@ -6,7 +6,7 @@ import QRCode from 'qrcode';
 import { expandClashProxyProviders } from './clash-providers.js';
 import { DEFAULT_LISTEN_PORT } from './constants.js';
 import { diagnoseState } from './diagnostics.js';
-import { buildUri, formatAssignmentName, getClientExport } from './exporters.js';
+import { buildAssignmentExportNode, buildUri, getClientExport } from './exporters.js';
 import { generateNormalizedSnapshot, generateSingBoxConfig } from './generator.js';
 import { parseSubscriptionContent } from './parsers.js';
 import { getQrPayload } from './qr.js';
@@ -148,10 +148,7 @@ async function routeRequest(req, res) {
     const assignments = Array.isArray(generated.assignments)
       ? generated.assignments.map((assignment) => ({
           ...assignment,
-          uri: buildUri({
-            ...assignment.node,
-            name: formatAssignmentName(assignment, viewState.export?.nameTemplate),
-          }),
+          uri: buildUri(buildAssignmentExportNode(assignment, viewState.export?.nameTemplate)),
         }))
       : [];
     return sendJson(res, 200, {

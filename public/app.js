@@ -359,7 +359,11 @@ function buildRouteOutputSnapshots(generated) {
     const links = matched
       .map((assignment, index) => {
         const protocol = normalizeRouteProtocol(assignment.node?.protocol);
-        const label = String(assignment.node?.name || '').trim() || assignment.tag || `Node ${index + 1}`;
+        const nodeName = String(assignment.node?.name || '').trim() || assignment.tag || `Node ${index + 1}`;
+        const egressName = String(assignment.egress?.name || '').trim();
+        const label = assignment.egress?.protocol === 'direct' || !egressName
+          ? nodeName
+          : `${nodeName} via ${egressName}`;
         const uri = String(assignment.uri || '').trim();
         return {
           index,

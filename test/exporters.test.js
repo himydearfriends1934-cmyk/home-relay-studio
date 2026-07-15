@@ -104,13 +104,15 @@ test('keeps Shadowsocks plugin options in Shadowrocket subscriptions', () => {
   });
 });
 
-test('rejects V2Ray URI export when assignments require a chained egress', () => {
+test('exports V2Ray URI subscriptions as flattened final egress nodes', () => {
   const { state, parsedSources } = buildFixture();
   const output = getClientExport('v2ray', state, parsedSources);
+  const decoded = Buffer.from(output.body, 'base64').toString('utf8');
 
-  assert.equal(output.nodeCount, 0);
-  assert.equal(output.body, '');
-  assert.match(output.error, /v2ray.*(?:chain|egress)|(?:chain|egress).*v2ray/i);
+  assert.equal(output.nodeCount, 1);
+  assert.equal(output.error, undefined);
+  assert.match(decoded, /^http:\/\/user:pass@isp\.example\.com:10001/);
+  assert.match(decoded, /#node-a%20via%20france$/);
 });
 
 test('exports V2RayN URI subscriptions for direct assignments', () => {

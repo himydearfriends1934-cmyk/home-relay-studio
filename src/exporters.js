@@ -79,21 +79,12 @@ export function getClientExport(format, state, parsedSources, options = {}) {
     };
   }
 
-  if (singBox.assignments.some((assignment) => assignment.egress.protocol !== 'direct')) {
-    return {
-      ...meta,
-      body: '',
-      nodeCount: 0,
-      warnings: singBox.assignmentWarnings,
-      error: 'V2Ray URI subscriptions cannot carry a chained home-egress route. Use Shadowrocket, Clash, or sing-box.',
-    };
-  }
-
-  const uriText = generateUriSubscription(state, singBox.assignments).join('\n');
+  const uris = generateUriSubscription(state, singBox.assignments);
+  const uriText = uris.join('\n');
   return {
     ...meta,
     body: Buffer.from(uriText, 'utf8').toString('base64'),
-    nodeCount: uriText.length,
+    nodeCount: uris.length,
     warnings: singBox.assignmentWarnings,
   };
 }
@@ -214,15 +205,21 @@ export function generateUriSubscription(state, assignments) {
   const lines = [];
   const seen = new Set();
   for (const assignment of assignments) {
-    const uri = buildUri({
-      ...assignment.node,
-      name: formatAssignmentName(assignment, state.export?.nameTemplate),
-    });
+    const uri = buildUri(buildAssignmentExportNode(assignment, state.export?.nameTemplate));
     if (!uri || seen.has(uri)) continue;
     seen.add(uri);
     lines.push(uri);
   }
   return lines;
+}
+
+export function buildAssignmentExportNode(assignment, template) {
+  const baseNode = assignment?.egress?.protocol === 'direct' ? assignment?.node : assignment?.egress;
+  if (!baseNode) return {};
+  return {
+    ...baseNode,
+    name: formatAssignmentName(assignment, template),
+  };
 }
 
 export function formatAssignmentName(assignment, template = '{sourceName} via {egressName}') {
