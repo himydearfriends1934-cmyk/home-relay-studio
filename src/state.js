@@ -188,6 +188,9 @@ export function normalizeRule(rule, index = 0) {
     sourceIds: Array.isArray(item.match?.sourceIds) ? item.match.sourceIds.map(normalizeName).filter(Boolean) : [],
     sourceNameRegex: normalizeName(item.match?.sourceNameRegex || ''),
     nodeNameRegex: normalizeName(item.match?.nodeNameRegex || ''),
+    nodeIds: Array.isArray(item.match?.nodeIds)
+      ? item.match.nodeIds.map(normalizeName).filter(Boolean)
+      : [],
     protocols: Array.isArray(item.match?.protocols)
       ? item.match.protocols.map((value) => normalizeName(value).toLowerCase()).filter(Boolean)
       : [],

@@ -28,6 +28,7 @@ const EXPORT_VIEWS = [
 
 const CLICK_FEEDBACK_SELECTOR = 'button, .button-link, summary, [data-route-set], [data-select-collection], [data-output-view], [data-view]';
 const IMPORT_RENDER_DELAY_MS = 300;
+const EMPTY_NODE_SELECTION = '__none__';
 
 const ui = {
   mode: 'config',
@@ -35,6 +36,7 @@ const ui = {
   diagnosis: null,
   previews: {},
   sourceTests: {},
+  autoTestingSources: new Set(),
   exportFormat: 'shadowrocket',
   exportView: 'qr',
   activeItems: {
@@ -597,6 +599,14 @@ function uniqueStrings(values) {
   return Array.from(new Set(values.map((value) => String(value)).filter(Boolean)));
 }
 
+function safeRegexTest(pattern, value) {
+  try {
+    return new RegExp(pattern, 'i').test(String(value ?? ''));
+  } catch {
+    return false;
+  }
+}
+
 function getEntityRouteMeta(collection, item) {
   const sets = getRouteSets();
   const match = sets.find((set) => {
@@ -648,6 +658,7 @@ function renderCollection(collection) {
   element.innerHTML = items.length
     ? renderEntityDeck(collection, definition.label, items, definition.renderer, definition.summary)
     : emptyState(definition.empty[0], definition.empty[1]);
+  if (collection === 'rules') queueRuleAutoSourceChecks();
   updateCounts();
 }
 
@@ -858,7 +869,8 @@ function renderEgressQuickImport(index) {
 function renderRule(rule, index) {
   const sourceOptions = state.sources.map((source) => ({ value: source.id, label: source.name, meta: source.id }));
   const egressOptions = state.egresses.map((egress) => ({ value: egress.id, label: egress.name, meta: `${egress.protocol} ${egress.id}` }));
-  const protocolLocks = getRuleProtocolLocks(rule, index);
+  const nodeChoices = getRuleNodeChoices(rule, index);
+  const nodeLocks = getRuleNodeLocks(rule, index, nodeChoices);
   return `
     <div class="entity" data-kind="rule" data-id="${rule.id}">
       <div class="entity-summary">
@@ -875,7 +887,7 @@ function renderRule(rule, index) {
           ${textField(`rules.${index}.name`, '名称', rule.name)}
           ${checkboxField(`rules.${index}.enabled`, '启用', rule.enabled)}
           ${pickerField(`rules.${index}.match.sourceIds`, '来源', sourceOptions, rule.match?.sourceIds || [], 'wide')}
-          ${protocolChecklistField(`rules.${index}.match.protocols`, '协议筛选', rule.match?.protocols || [], 'wide', protocolLocks)}
+          ${nodeChecklistField(`rules.${index}`, '节点筛选', nodeChoices, 'wide', nodeLocks)}
           ${pickerField(`rules.${index}.targets`, '目标出口', egressOptions, rule.targets || [], 'wide')}
         </div>
         <details class="advanced" data-details-key="rule:${escapeHtml(rule.id)}:advanced" ${detailsOpen(`rule:${rule.id}:advanced`)}>
@@ -886,6 +898,7 @@ function renderRule(rule, index) {
             ${checkboxField(`rules.${index}.stop`, '匹配后停止', rule.stop)}
             ${textField(`rules.${index}.match.sourceNameRegex`, '来源名称正则', rule.match?.sourceNameRegex || '', 'wide')}
             ${textField(`rules.${index}.match.nodeNameRegex`, '节点名称正则', rule.match?.nodeNameRegex || '', 'wide')}
+            ${nodeSummaryField('已选节点', summarizeNodeSelection(rule), 'wide')}
             ${textField(`rules.${index}.notes`, '备注', rule.notes, 'wide')}
           </div>
         </details>
@@ -894,17 +907,174 @@ function renderRule(rule, index) {
   `;
 }
 
-function getRuleProtocolLocks(rule, ruleIndex) {
+function getRuleSourceIds(rule) {
+  const ids = Array.isArray(rule.match?.sourceIds) ? rule.match.sourceIds.filter(Boolean) : [];
+  if (ids.length > 0) return ids;
+  return state.sources.filter((source) => source.enabled).map((source) => source.id);
+}
+
+function getRuleNodeChoices(rule, ruleIndex) {
+  const sourceIds = getRuleSourceIds(rule);
+  const choices = [];
+  for (const sourceId of sourceIds) {
+    const source = state.sources.find((item) => item.id === sourceId);
+    if (!source) continue;
+    const preview = ui.previews[sourceId];
+    const test = ui.sourceTests[sourceId];
+    const testMap = getSourceTestLookup(test);
+    const nodes = getPreviewNodesForRule(preview, test);
+    if (nodes.length === 0) {
+      choices.push({
+        id: `source:${sourceId}:pending`,
+        sourceId,
+        sourceName: source.name,
+        name: '等待解析',
+        protocol: 'unknown',
+        server: '',
+        port: null,
+        latencyMs: null,
+        status: 'pending',
+        message: 'Please open this rule to load source nodes.',
+        placeholder: true,
+      });
+      continue;
+    }
+    nodes.forEach((node, nodeIndex) => {
+      const nodeId = normalizeSelectValue(node.id || `${source.id}-node-${nodeIndex}`);
+      const tested = lookupSourceTest(testMap, source, node, nodeIndex);
+      choices.push({
+        id: nodeId,
+        sourceId,
+        sourceName: source.name,
+        name: node.name || nodeId,
+        protocol: normalizeRouteProtocol(node.protocol || tested?.protocol || ''),
+        server: node.server || tested?.server || '',
+        port: node.port ?? tested?.port ?? null,
+        status: tested?.status || node.status || '',
+        latencyMs: tested?.latencyMs ?? null,
+        message: tested?.message || '',
+      });
+    });
+  }
+  return choices;
+}
+
+function getPreviewNodesForRule(preview, test) {
+  if (Array.isArray(preview?.nodes) && preview.nodes.length > 0) {
+    return preview.nodes;
+  }
+  if (Array.isArray(test?.nodesList) && test.nodesList.length > 0) {
+    return test.nodesList;
+  }
+  if (Array.isArray(test?.checks) && test.checks.length > 0) {
+    return test.checks.map((check, index) => ({
+      id: check.id || `check-${index}`,
+      name: check.name || `node-${index + 1}`,
+      protocol: check.protocol || 'unknown',
+      server: check.server || '',
+      port: check.port ?? null,
+    }));
+  }
+  return [];
+}
+
+function getSourceTestLookup(test) {
+  const lookup = new Map();
+  for (const check of Array.isArray(test?.checks) ? test.checks : []) {
+    const id = normalizeSelectValue(check.id || '');
+    if (id) lookup.set(id, check);
+    const key = nodeTestKey(check.name, check.protocol, check.server, check.port);
+    lookup.set(key, check);
+  }
+  return lookup;
+}
+
+function lookupSourceTest(testMap, source, node, nodeIndex = 0) {
+  const id = normalizeSelectValue(node.id || '');
+  if (id && testMap.has(id)) return testMap.get(id);
+  const key = nodeTestKey(node.name, node.protocol, node.server, node.port);
+  if (testMap.has(key)) return testMap.get(key);
+  const nameKey = nodeTestKey(node.name, node.protocol, '', '');
+  if (testMap.has(nameKey)) return testMap.get(nameKey);
+  const fallbackKey = nodeTestKey(node.name || `${source.name}-${nodeIndex + 1}`, node.protocol, node.server, node.port);
+  return testMap.get(fallbackKey) || null;
+}
+
+function nodeTestKey(name, protocol, server, port) {
+  return [
+    normalizeSelectValue(name).toLowerCase(),
+    normalizeSelectValue(protocol).toLowerCase(),
+    normalizeSelectValue(server).toLowerCase(),
+    normalizeSelectValue(port),
+  ].join('|');
+}
+
+function summarizeNodeSelection(rule) {
+  const nodeIds = Array.isArray(rule.match?.nodeIds) ? rule.match.nodeIds.filter((id) => id && id !== EMPTY_NODE_SELECTION) : [];
+  if (Array.isArray(rule.match?.nodeIds) && rule.match.nodeIds.includes(EMPTY_NODE_SELECTION) && nodeIds.length === 0) {
+    return '未选择节点';
+  }
+  if (nodeIds.length > 0) {
+    const names = getRuleNodeChoices(rule, state.rules.findIndex((candidate) => candidate.id === rule.id))
+      .filter((choice) => nodeIds.includes(choice.id) && !choice.placeholder)
+      .map((choice) => choice.name)
+      .filter(Boolean);
+    if (names.length > 0) return names.slice(0, 4).join(', ');
+    return `${nodeIds.length} selected node${nodeIds.length === 1 ? '' : 's'}`;
+  }
+  const protocols = Array.isArray(rule.match?.protocols) ? rule.match.protocols.filter(Boolean) : [];
+  if (protocols.length === 0) return '所有节点';
+  return protocols.map((protocol) => PROTOCOL_LABELS[protocol] || protocol).join(', ');
+}
+
+function isExplicitNodeSelection(rule) {
+  const nodeIds = Array.isArray(rule.match?.nodeIds) ? rule.match.nodeIds.filter((id) => id && id !== EMPTY_NODE_SELECTION) : [];
+  return nodeIds.length > 0 || (Array.isArray(rule.match?.nodeIds) && rule.match.nodeIds.includes(EMPTY_NODE_SELECTION));
+}
+
+function isRuleNodeChoiceChecked(rule, choice) {
+  if (choice.placeholder) return false;
+  const selectedNodeIds = Array.isArray(rule.match?.nodeIds) ? rule.match.nodeIds.filter((id) => id && id !== EMPTY_NODE_SELECTION) : [];
+  if (selectedNodeIds.length > 0 || (Array.isArray(rule.match?.nodeIds) && rule.match.nodeIds.includes(EMPTY_NODE_SELECTION))) {
+    return selectedNodeIds.includes(choice.id);
+  }
+  const protocols = Array.isArray(rule.match?.protocols) ? rule.match.protocols : [];
+  return protocols.length === 0 || protocols.includes(choice.protocol);
+}
+
+function ruleMatchesNodeChoice(rule, choice) {
+  if (!choice || choice.placeholder) return false;
+  if (!rule.enabled) return false;
+  const match = rule.match || {};
+  if (Array.isArray(match.sourceIds) && match.sourceIds.length > 0 && !match.sourceIds.includes(choice.sourceId)) {
+    return false;
+  }
+  if (Array.isArray(match.nodeIds) && match.nodeIds.length > 0) {
+    if (match.nodeIds.includes(EMPTY_NODE_SELECTION)) return false;
+    if (!match.nodeIds.includes(choice.id)) return false;
+  }
+  if (Array.isArray(match.protocols) && match.protocols.length > 0) {
+    if (!match.protocols.includes(choice.protocol)) return false;
+  }
+  if (match.sourceNameRegex) {
+    if (!safeRegexTest(match.sourceNameRegex, choice.sourceName)) return false;
+  }
+  if (match.nodeNameRegex) {
+    if (!safeRegexTest(match.nodeNameRegex, choice.name)) return false;
+  }
+  return true;
+}
+
+function getRuleNodeLocks(rule, ruleIndex, nodeChoices) {
   const locks = {};
-  for (const protocol of PROTOCOL_OPTIONS) {
+  for (const choice of nodeChoices) {
     const owner = state.rules.find((candidate, index) => {
       if (index === ruleIndex || candidate.enabled === false) return false;
       if (!rulesOverlapSources(rule, candidate)) return false;
-      const protocols = candidate.match?.protocols || [];
-      return protocols.length === 0 || protocols.includes(protocol);
+      return ruleMatchesNodeChoice(candidate, choice);
     });
     if (owner) {
-      locks[protocol] = {
+      locks[choice.id] = {
         ruleName: owner.name || owner.id,
       };
     }
@@ -913,8 +1083,8 @@ function getRuleProtocolLocks(rule, ruleIndex) {
 }
 
 function rulesOverlapSources(a, b) {
-  const aSources = a.match?.sourceIds || [];
-  const bSources = b.match?.sourceIds || [];
+  const aSources = getRuleSourceIds(a);
+  const bSources = getRuleSourceIds(b);
   if (aSources.length === 0 || bSources.length === 0) return true;
   return aSources.some((id) => bSources.includes(id));
 }
@@ -1277,6 +1447,7 @@ function onInput(event) {
   if (target.matches('[data-egress-import]')) return;
   if (!target.matches('[data-path]')) return;
   updateStateFromInput(target);
+  maybeInvalidateSourceCache(target.dataset.path || '');
   queueSave(false);
 }
 
@@ -1291,15 +1462,23 @@ function onChange(event) {
     updateRouteCopySheetProtocol(target.dataset.routeCopyProtocol, target.checked);
     return;
   }
+  if (target.matches('[data-rule-node-choice]')) {
+    updateRuleNodeChoice(target);
+    return;
+  }
   if (target.matches('[data-array-path]')) {
     updateArrayFromInput(target);
     queueSave(true);
     target.closest('.picker-chip')?.classList.toggle('picked', target.checked);
     target.closest('.protocol-check-item')?.classList.toggle('checked', target.checked);
+    if (target.dataset.arrayPath?.includes('.match.sourceIds')) {
+      renderCollection('rules');
+    }
     return;
   }
   if (!target.matches('[data-path]')) return;
   updateStateFromInput(target);
+  maybeInvalidateSourceCache(target.dataset.path || '');
   queueSave(true);
   const path = target.dataset.path || '';
   const collection = path.split('.')[0];
@@ -1497,6 +1676,32 @@ function updateStateFromInput(target) {
   }
 }
 
+function maybeInvalidateSourceCache(path) {
+  const match = /^sources\.(\d+)\.(kind|url|content|formatHint|headersJson)$/.exec(String(path || ''));
+  if (!match) return;
+  const index = Number(match[1]);
+  const source = state.sources[index];
+  if (!source) return;
+  delete ui.previews[source.id];
+  delete ui.sourceTests[source.id];
+}
+
+function queueRuleAutoSourceChecks() {
+  const rule = state.rules.find((item) => item.id === ui.activeItems.rules) || state.rules[0];
+  if (!rule) return;
+  for (const sourceId of getRuleSourceIds(rule)) {
+    if (!sourceId) continue;
+    if (!ui.sourceTests[sourceId] && !ui.autoTestingSources.has(sourceId)) {
+      ui.autoTestingSources.add(sourceId);
+      testSource(sourceId)
+        .catch(() => {})
+        .finally(() => {
+          ui.autoTestingSources.delete(sourceId);
+        });
+    }
+  }
+}
+
 function readInputValue(target) {
   if (target.type === 'checkbox') return target.checked;
   if (target.type === 'number') return target.value === '' ? '' : Number(target.value);
@@ -1539,7 +1744,7 @@ function updateArrayFromInput(target) {
     ? allValues.slice()
     : Array.isArray(list)
       ? list.slice()
-      : [];
+    : [];
   if (target.checked) {
     if (!next.includes(value)) next.push(value);
   } else {
@@ -1547,6 +1752,45 @@ function updateArrayFromInput(target) {
     if (index >= 0) next.splice(index, 1);
   }
   setPath(state, path, next);
+  const sourceMatch = /^rules\.(\d+)\.match\.sourceIds$/.exec(String(path || ''));
+  if (sourceMatch) {
+    const ruleIndex = Number(sourceMatch[1]);
+    const rule = state.rules[ruleIndex];
+    if (rule) {
+      const choices = getRuleNodeChoices(rule, ruleIndex).filter((choice) => !choice.placeholder);
+      const allowedIds = new Set(choices.map((choice) => choice.id));
+      const currentIds = Array.isArray(rule.match?.nodeIds) ? rule.match.nodeIds.filter((id) => id && id !== EMPTY_NODE_SELECTION) : [];
+      if (currentIds.length > 0) {
+        const nextIds = currentIds.filter((id) => allowedIds.has(id));
+        rule.match.nodeIds = nextIds.length > 0 ? nextIds : [EMPTY_NODE_SELECTION];
+        rule.match.protocols = [...new Set(choices.filter((choice) => nextIds.includes(choice.id)).map((choice) => choice.protocol).filter(Boolean))];
+      }
+    }
+  }
+}
+
+function updateRuleNodeChoice(target) {
+  const ruleIndex = Number(target.dataset.ruleIndex);
+  const rule = state.rules[ruleIndex];
+  if (!rule) return;
+  const choices = getRuleNodeChoices(rule, ruleIndex).filter((choice) => !choice.placeholder);
+  const currentIds = choices.filter((choice) => isRuleNodeChoiceChecked(rule, choice)).map((choice) => choice.id);
+  const nextIds = new Set(currentIds);
+  const nodeId = normalizeSelectValue(target.dataset.ruleNodeId || '');
+  if (!nodeId) return;
+  if (target.checked) nextIds.add(nodeId);
+  else nextIds.delete(nodeId);
+
+  const selectedIds = choices.filter((choice) => nextIds.has(choice.id)).map((choice) => choice.id);
+  if (selectedIds.length === 0) {
+    rule.match.nodeIds = [EMPTY_NODE_SELECTION];
+    rule.match.protocols = [];
+  } else {
+    rule.match.nodeIds = selectedIds;
+    rule.match.protocols = [...new Set(choices.filter((choice) => selectedIds.includes(choice.id)).map((choice) => choice.protocol).filter(Boolean))];
+  }
+  renderCollection('rules');
+  queueSave(true);
 }
 
 function readPath(obj, path) {
@@ -2195,9 +2439,74 @@ function protocolChecklistField(path, label, selectedValues, extraClass = '', lo
   `;
 }
 
+function nodeChecklistField(path, label, choices, extraClass = '', locks = {}) {
+  const cls = extraClass ? `field ${extraClass}` : 'field';
+  const visibleChoices = Array.isArray(choices) ? choices.filter((choice) => !choice.placeholder) : [];
+  const ruleIndex = Number(String(path).match(/^rules\.(\d+)/)?.[1] ?? -1);
+  const rule = state.rules[ruleIndex];
+  const explicit = isExplicitNodeSelection(rule || {});
+  const selectedNodeIds = Array.isArray(rule?.match?.nodeIds)
+    ? rule.match.nodeIds.filter((id) => id && id !== EMPTY_NODE_SELECTION)
+    : [];
+  return `
+    <div class="${cls}">
+      <span>${escapeHtml(label)}</span>
+      <div class="protocol-check-list node-check-list">
+        ${visibleChoices.length > 0
+          ? visibleChoices.map((choice) => {
+              const checked = isRuleNodeChoiceChecked(rule || {}, choice);
+              const lock = locks[choice.id];
+              const disabled = Boolean(lock && !checked);
+              const latency = choice.latencyMs == null ? '—' : `${choice.latencyMs}ms`;
+              const endpoint = [choice.server, choice.port].filter(Boolean).join(':');
+              const subtitle = [PROTOCOL_LABELS[choice.protocol] || choice.protocol, endpoint, choice.sourceName, latency].filter(Boolean).join(' · ');
+              const titleParts = [choice.name, subtitle, lock ? `used by ${lock.ruleName}` : ''].filter(Boolean);
+              return `
+                <label class="protocol-check-item node-check-item ${checked ? 'checked' : ''} ${disabled ? 'disabled' : ''}" title="${escapeHtml(titleParts.join(' | '))}">
+                  <input
+                    data-rule-node-choice
+                    data-rule-index="${ruleIndex}"
+                    data-rule-node-id="${escapeHtml(choice.id)}"
+                    data-rule-node-name="${escapeHtml(choice.name)}"
+                    data-rule-node-protocol="${escapeHtml(choice.protocol)}"
+                    type="checkbox"
+                    ${checked ? 'checked' : ''}
+                    ${disabled ? 'disabled' : ''}
+                    aria-describedby="node-choice-${escapeHtml(choice.id)}"
+                  />
+                  <span class="node-check-main">
+                    <span class="protocol-check-name">${escapeHtml(choice.name)}</span>
+                    <small id="node-choice-${escapeHtml(choice.id)}">${escapeHtml(subtitle)}${choice.message ? ` · ${choice.message}` : ''}</small>
+                  </span>
+                  <small>${escapeHtml(lock ? `used: ${lock.ruleName}` : explicit ? (selectedNodeIds.length > 0 ? 'selected' : 'none') : 'auto')}</small>
+                </label>
+              `;
+            }).join('')
+          : `<div class="node-check-empty">${escapeHtml(nodeChoicesEmptyMessage(rule, choices))}</div>`}
+      </div>
+      <small class="field-hint">选中具体节点后，会只输出这些节点；如果没有手动选节点，就按协议筛选回退。已被其他 Rule 占用的节点会变灰。</small>
+    </div>
+  `;
+}
+
+function nodeChoicesEmptyMessage(rule, choices) {
+  if (!rule) return '先选择一个 Rule。';
+  const sourceIds = getRuleSourceIds(rule);
+  if (!sourceIds.length) return '先选一个 Source。';
+  const loadingSource = sourceIds.find((sourceId) => ui.previews[sourceId]?.loading || ui.sourceTests[sourceId]?.loading);
+  if (loadingSource) return '正在自动测试来源节点…';
+  if (Array.isArray(choices) && choices.length === 0) return '当前 Source 没有可用节点。';
+  return '暂无节点。';
+}
+
 function textareaField(path, label, value, extraClass = '') {
   const cls = extraClass ? `field ${extraClass}` : 'field';
   return `<label class="${cls}"><span>${escapeHtml(label)}</span><textarea data-path="${escapeHtml(path)}">${escapeHtml(value ?? '')}</textarea></label>`;
+}
+
+function nodeSummaryField(label, value, extraClass = '') {
+  const cls = extraClass ? `field ${extraClass}` : 'field';
+  return `<div class="${cls}"><span>${escapeHtml(label)}</span><div class="node-summary-box">${escapeHtml(value || '未选择')}</div></div>`;
 }
 
 function normalizeSelectValue(value) {

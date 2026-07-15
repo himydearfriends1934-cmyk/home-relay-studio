@@ -1,6 +1,8 @@
 import { SOURCE_NODE_PROTOCOLS } from './constants.js';
 import { escapeRegExp, normalizeName, sanitizeTag, uniqueBy } from './utils.js';
 
+const EMPTY_NODE_SELECTION = '__none__';
+
 export function buildAssignments(state, parsedSources) {
   const warnings = [];
   const enabledEgresses = state.egresses.filter((egress) => egress.enabled);
@@ -147,6 +149,16 @@ function findRuleProtocolOverlaps(rules, parsedSources) {
       if (!Array.isArray(second.targets) || second.targets.length === 0) continue;
       const sourceIds = overlappingSourceIds(first, second, parsedSources);
       if (sourceIds.length === 0) continue;
+      if (ruleUsesNodeSelection(first) || ruleUsesNodeSelection(second)) {
+        const nodes = overlappingRuleNodes(first, second, parsedSources);
+        if (nodes.length === 0) continue;
+        warnings.push({
+          type: 'rule-node-overlap',
+          ruleName: first.name,
+          message: `Rules "${first.name}" and "${second.name}" both select ${formatNodeList(nodes)} for overlapping sources. A parsed source node can only be owned by one rule unless you put multiple target egresses in the same rule.`,
+        });
+        continue;
+      }
       const protocols = overlappingProtocols(first, second);
       if (protocols.length === 0) continue;
       warnings.push({
@@ -170,6 +182,22 @@ function overlappingSourceIds(first, second, parsedSources) {
   return firstIds.filter((id) => secondIds.includes(id));
 }
 
+function ruleUsesNodeSelection(rule) {
+  return Array.isArray(rule.match?.nodeIds) && rule.match.nodeIds.length > 0;
+}
+
+function overlappingRuleNodes(first, second, parsedSources) {
+  const nodes = [];
+  for (const bundle of parsedSources) {
+    for (const node of bundle.nodes || []) {
+      if (ruleMatchesNode(first, node, bundle.source) && ruleMatchesNode(second, node, bundle.source)) {
+        nodes.push(node.name || node.id || node.protocol || 'node');
+      }
+    }
+  }
+  return nodes;
+}
+
 function overlappingProtocols(first, second) {
   const allProtocols = Array.from(SOURCE_NODE_PROTOCOLS);
   const firstProtocols = Array.isArray(first.match?.protocols) && first.match.protocols.length > 0
@@ -186,13 +214,22 @@ function formatProtocolList(protocols) {
   return protocols.join(', ');
 }
 
+function formatNodeList(nodes) {
+  if (nodes.length > 3) return `${nodes.slice(0, 3).join(', ')} and ${nodes.length - 3} more nodes`;
+  return nodes.join(', ');
+}
+
 export function ruleMatchesNode(rule, node, source) {
   if (!rule.enabled) return false;
   const match = rule.match || {};
   if (Array.isArray(match.sourceIds) && match.sourceIds.length > 0 && !match.sourceIds.includes(source.id)) {
     return false;
   }
-  if (Array.isArray(match.protocols) && match.protocols.length > 0) {
+  const nodeIds = Array.isArray(match.nodeIds) ? match.nodeIds.filter((id) => id && id !== EMPTY_NODE_SELECTION) : [];
+  if (nodeIds.length > 0 || (Array.isArray(match.nodeIds) && match.nodeIds.includes(EMPTY_NODE_SELECTION))) {
+    const nodeId = normalizeName(node.id || '');
+    if (!nodeId || !nodeIds.includes(nodeId)) return false;
+  } else if (Array.isArray(match.protocols) && match.protocols.length > 0) {
     const protocol = normalizeName(node.protocol).toLowerCase();
     if (!match.protocols.includes(protocol)) return false;
   }

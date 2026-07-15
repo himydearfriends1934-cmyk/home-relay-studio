@@ -1085,6 +1085,47 @@ textarea.code {
   font-size: 11px;
 }
 
+.node-check-list {
+  grid-template-columns: 1fr;
+}
+
+.node-check-item {
+  align-items: start;
+  grid-template-columns: auto minmax(0, 1fr) auto;
+}
+
+.node-check-main {
+  display: grid;
+  gap: 2px;
+  min-width: 0;
+}
+
+.node-check-main small {
+  color: var(--muted);
+  font-size: 11px;
+  line-height: 1.35;
+}
+
+.node-check-empty {
+  padding: 10px 12px;
+  border: 1px dashed var(--line);
+  border-radius: 6px;
+  color: var(--muted);
+  background: #fff;
+}
+
+.node-summary-box {
+  padding: 9px 11px;
+  min-height: 38px;
+  display: flex;
+  align-items: center;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  background: #fff;
+  color: var(--text);
+  line-height: 1.4;
+}
+
 .field-hint {
   display: block;
   margin-top: 7px;

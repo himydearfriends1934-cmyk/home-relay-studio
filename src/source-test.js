@@ -30,6 +30,7 @@ export async function testSource(source, loader, options = {}) {
       bytes: Buffer.byteLength(String(content || ''), 'utf8'),
       format: parsed.format,
       nodes: nodes.length,
+      nodesList: nodes,
       checked: checks.length,
       truncated: nodes.length > checks.length,
       protocolCounts: countProtocols(nodes),
@@ -46,6 +47,7 @@ export async function testSource(source, loader, options = {}) {
       bytes: 0,
       format: 'error',
       nodes: 0,
+      nodesList: [],
       checked: 0,
       truncated: false,
       protocolCounts: {},
@@ -69,8 +71,11 @@ async function testNode(node, timeoutMs) {
   const startedAt = Date.now();
   const tcp = await checkTcpEndpoint(node.server, node.port, timeoutMs);
   return {
+    id: node.id || '',
     name: node.name || '',
     protocol: node.protocol || 'unknown',
+    server: node.server || '',
+    port: node.port || null,
     status: tcp.status,
     latencyMs: tcp.status === 'open' ? Date.now() - startedAt : null,
     message: tcp.message || '',

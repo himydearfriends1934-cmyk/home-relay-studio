@@ -254,6 +254,51 @@ test('source-scoped protocol rules block default fallback for unselected protoco
   assert.ok(result.assignmentWarnings.some((warning) => warning.nodeName === 'trojan-node'));
 });
 
+test('node-scoped rules select only matching nodes without overlap warnings', () => {
+  const source = {
+    id: 'src-1',
+    name: 'Mixed source',
+    kind: 'text',
+    enabled: true,
+    content: [
+      'vless://11111111-1111-1111-1111-111111111111@front.example.com:443?encryption=none&security=tls&type=ws&host=example.com&path=%2Fchat#vless-node',
+      'trojan://secret@front.example.com:443?type=tcp#trojan-node',
+    ].join('\n'),
+  };
+  const parsed = parseSubscriptionContent(source.content, source);
+  const state = normalizeState({
+    sources: [source],
+    egresses: [{ id: 'eg-1', name: 'France', protocol: 'socks', server: 'fr.example.com', port: 1080, enabled: true }],
+    rules: [
+      {
+        id: 'rule-vless',
+        name: 'Only vless node',
+        enabled: true,
+        priority: 100,
+        targetMode: 'replace',
+        stop: true,
+        match: { sourceIds: ['src-1'], nodeIds: [parsed.nodes[0].id], protocols: ['vless'] },
+        targets: ['eg-1'],
+      },
+      {
+        id: 'rule-trojan',
+        name: 'Only trojan node',
+        enabled: true,
+        priority: 90,
+        targetMode: 'replace',
+        stop: true,
+        match: { sourceIds: ['src-1'], nodeIds: [parsed.nodes[1].id], protocols: ['trojan'] },
+        targets: ['eg-1'],
+      },
+    ],
+  });
+  const result = generateSingBoxConfig(state, [{ source: state.sources[0], ...parsed }]);
+
+  assert.equal(result.assignments.length, 2);
+  assert.deepEqual(result.assignments.map((assignment) => assignment.node.name).sort(), ['trojan-node', 'vless-node']);
+  assert.ok(!result.assignmentWarnings.some((warning) => warning.type === 'rule-node-overlap'));
+});
+
 test('warns when overlapping rules select the same source protocol', () => {
   const state = normalizeState({
     sources: [{ id: 'src-1', name: 'Mixed source', kind: 'text', enabled: true }],
