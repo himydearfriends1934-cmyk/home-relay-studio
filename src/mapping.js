@@ -1,8 +1,6 @@
 import { SOURCE_NODE_PROTOCOLS } from './constants.js';
 import { escapeRegExp, normalizeName, sanitizeTag, uniqueBy } from './utils.js';
 
-const EMPTY_NODE_SELECTION = '__none__';
-
 export function buildAssignments(state, parsedSources) {
   const warnings = [];
   const enabledEgresses = state.egresses.filter((egress) => egress.enabled);
@@ -183,7 +181,7 @@ function overlappingSourceIds(first, second, parsedSources) {
 }
 
 function ruleUsesNodeSelection(rule) {
-  return Array.isArray(rule.match?.nodeIds) && rule.match.nodeIds.length > 0;
+  return Array.isArray(rule.match?.nodeIds) && rule.match.nodeIds.some(Boolean);
 }
 
 function overlappingRuleNodes(first, second, parsedSources) {
@@ -225,8 +223,8 @@ export function ruleMatchesNode(rule, node, source) {
   if (Array.isArray(match.sourceIds) && match.sourceIds.length > 0 && !match.sourceIds.includes(source.id)) {
     return false;
   }
-  const nodeIds = Array.isArray(match.nodeIds) ? match.nodeIds.filter((id) => id && id !== EMPTY_NODE_SELECTION) : [];
-  if (nodeIds.length > 0 || (Array.isArray(match.nodeIds) && match.nodeIds.includes(EMPTY_NODE_SELECTION))) {
+  const nodeIds = Array.isArray(match.nodeIds) ? match.nodeIds.filter(Boolean) : [];
+  if (nodeIds.length > 0) {
     const nodeId = normalizeName(node.id || '');
     if (!nodeId || !nodeIds.includes(nodeId)) return false;
   } else if (Array.isArray(match.protocols) && match.protocols.length > 0) {

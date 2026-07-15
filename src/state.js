@@ -77,6 +77,8 @@ export function normalizeSource(source, index = 0) {
   item.name = normalizeName(item.name) || `Source ${index + 1}`;
   item.kind = item.kind === 'text' ? 'text' : 'url';
   item.url = normalizeName(item.url || '');
+  item.sameVps = Boolean(item.sameVps);
+  item.localUrl = normalizeName(item.localUrl || '');
   item.content = String(item.content ?? '');
   item.formatHint = normalizeName(item.formatHint || 'auto') || 'auto';
   item.enabled = item.enabled !== false;

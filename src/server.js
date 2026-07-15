@@ -9,6 +9,7 @@ import { buildUri, formatAssignmentName, getClientExport } from './exporters.js'
 import { generateNormalizedSnapshot, generateSingBoxConfig } from './generator.js';
 import { parseSubscriptionContent } from './parsers.js';
 import { getQrPayload } from './qr.js';
+import { resolveSourceFetchUrl } from './source-access.js';
 import { testSource } from './source-test.js';
 import { normalizeState } from './state.js';
 import { loadState, saveState } from './store.js';
@@ -297,7 +298,11 @@ async function loadParsedSources(viewState) {
 }
 
 async function loadSourceContent(source) {
-  if (source.kind === 'text' || !source.url) {
+  if (source.kind === 'text') {
+    return source.content || '';
+  }
+  const resolvedUrl = resolveSourceFetchUrl(source);
+  if (!resolvedUrl) {
     return source.content || '';
   }
   let customHeaders = {};
@@ -310,7 +315,7 @@ async function loadSourceContent(source) {
       throw new Error(`Invalid headers JSON for source "${source.name || source.id}": ${error.message}`);
     }
   }
-  const response = await fetch(source.url, {
+  const response = await fetch(resolvedUrl, {
     signal: AbortSignal.timeout(15_000),
     headers: {
       'user-agent': 'HomeRelayStudio/0.1',

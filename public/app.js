@@ -28,7 +28,6 @@ const EXPORT_VIEWS = [
 
 const CLICK_FEEDBACK_SELECTOR = 'button, .button-link, summary, [data-route-set], [data-select-collection], [data-output-view], [data-view]';
 const IMPORT_RENDER_DELAY_MS = 300;
-const EMPTY_NODE_SELECTION = '__none__';
 
 const ui = {
   mode: 'config',
@@ -738,7 +737,7 @@ function renderEntityIcon(collection, item) {
 }
 
 function summarizeSourceCard(source) {
-  return [source.kind || 'url', source.formatHint || 'auto', source.id].filter(Boolean).join(' | ');
+  return [source.kind || 'url', source.sameVps ? 'same VPS' : 'remote', source.formatHint || 'auto', source.id].filter(Boolean).join(' | ');
 }
 
 function summarizeEgressCard(egress) {
@@ -773,12 +772,14 @@ function renderSource(source, index) {
   const preview = ui.previews[source.id];
   const sourceTest = ui.sourceTests[source.id];
   const isText = source.kind === 'text';
+  const localUrlHint = source.sameVps ? '同 VPS 时优先使用本机/内网/Tailscale 地址；也可以直接填 127.0.0.1:port/path，系统会自动补 http://。' : '如果源和系统在同一台 VPS 上，可以勾选同 VPS 再填本机地址。';
   return `
     <div class="entity" data-kind="source" data-id="${source.id}">
       <div class="entity-summary">
         <div class="summary-left">
           <span class="summary-title">${escapeHtml(source.name)}</span>
           <span class="pill">${escapeHtml(source.kind)}</span>
+          <span class="pill ${source.sameVps ? 'ok' : 'off'}">${source.sameVps ? 'same VPS' : 'remote'}</span>
           <span class="pill ${source.enabled ? 'ok' : 'off'}">${source.enabled ? 'on' : 'off'}</span>
         </div>
         <div class="summary-actions">
@@ -793,6 +794,8 @@ function renderSource(source, index) {
           ${selectField(`sources.${index}.kind`, '来源类型', SOURCE_KIND_OPTIONS, source.kind)}
           ${checkboxField(`sources.${index}.enabled`, '启用', source.enabled)}
           ${isText ? textareaField(`sources.${index}.content`, '订阅内容', source.content || '', 'wide') : textField(`sources.${index}.url`, '订阅 URL', source.url, 'wide')}
+          ${!isText ? checkboxField(`sources.${index}.sameVps`, '与节点同 VPS', source.sameVps) : ''}
+          ${!isText && source.sameVps ? textField(`sources.${index}.localUrl`, '同 VPS URL', source.localUrl || '', 'wide') : ''}
         </div>
         <details class="advanced" data-details-key="source:${escapeHtml(source.id)}:advanced" ${detailsOpen(`source:${source.id}:advanced`)}>
           <summary>格式、请求头与备注</summary>
@@ -802,6 +805,7 @@ function renderSource(source, index) {
             ${!isText ? textareaField(`sources.${index}.content`, '备用原始内容', source.content || '', 'wide') : ''}
             ${textField(`sources.${index}.notes`, '备注', source.notes, 'wide')}
           </div>
+          ${!isText ? `<small class="field-hint">${escapeHtml(localUrlHint)}</small>` : ''}
         </details>
         ${preview ? `<div class="preview-box">${renderPreview(preview)}</div>` : ''}
         ${sourceTest ? `<div class="preview-box">${renderSourceTest(sourceTest)}</div>` : ''}
@@ -1010,10 +1014,7 @@ function nodeTestKey(name, protocol, server, port) {
 }
 
 function summarizeNodeSelection(rule) {
-  const nodeIds = Array.isArray(rule.match?.nodeIds) ? rule.match.nodeIds.filter((id) => id && id !== EMPTY_NODE_SELECTION) : [];
-  if (Array.isArray(rule.match?.nodeIds) && rule.match.nodeIds.includes(EMPTY_NODE_SELECTION) && nodeIds.length === 0) {
-    return '未选择节点';
-  }
+  const nodeIds = Array.isArray(rule.match?.nodeIds) ? rule.match.nodeIds.filter(Boolean) : [];
   if (nodeIds.length > 0) {
     const names = getRuleNodeChoices(rule, state.rules.findIndex((candidate) => candidate.id === rule.id))
       .filter((choice) => nodeIds.includes(choice.id) && !choice.placeholder)
@@ -1028,14 +1029,14 @@ function summarizeNodeSelection(rule) {
 }
 
 function isExplicitNodeSelection(rule) {
-  const nodeIds = Array.isArray(rule.match?.nodeIds) ? rule.match.nodeIds.filter((id) => id && id !== EMPTY_NODE_SELECTION) : [];
-  return nodeIds.length > 0 || (Array.isArray(rule.match?.nodeIds) && rule.match.nodeIds.includes(EMPTY_NODE_SELECTION));
+  const nodeIds = Array.isArray(rule.match?.nodeIds) ? rule.match.nodeIds.filter(Boolean) : [];
+  return nodeIds.length > 0;
 }
 
 function isRuleNodeChoiceChecked(rule, choice) {
   if (choice.placeholder) return false;
-  const selectedNodeIds = Array.isArray(rule.match?.nodeIds) ? rule.match.nodeIds.filter((id) => id && id !== EMPTY_NODE_SELECTION) : [];
-  if (selectedNodeIds.length > 0 || (Array.isArray(rule.match?.nodeIds) && rule.match.nodeIds.includes(EMPTY_NODE_SELECTION))) {
+  const selectedNodeIds = Array.isArray(rule.match?.nodeIds) ? rule.match.nodeIds.filter(Boolean) : [];
+  if (selectedNodeIds.length > 0) {
     return selectedNodeIds.includes(choice.id);
   }
   const protocols = Array.isArray(rule.match?.protocols) ? rule.match.protocols : [];
@@ -1049,10 +1050,8 @@ function ruleMatchesNodeChoice(rule, choice) {
   if (Array.isArray(match.sourceIds) && match.sourceIds.length > 0 && !match.sourceIds.includes(choice.sourceId)) {
     return false;
   }
-  if (Array.isArray(match.nodeIds) && match.nodeIds.length > 0) {
-    if (match.nodeIds.includes(EMPTY_NODE_SELECTION)) return false;
-    if (!match.nodeIds.includes(choice.id)) return false;
-  }
+  const nodeIds = Array.isArray(match.nodeIds) ? match.nodeIds.filter(Boolean) : [];
+  if (nodeIds.length > 0 && !nodeIds.includes(choice.id)) return false;
   if (Array.isArray(match.protocols) && match.protocols.length > 0) {
     if (!match.protocols.includes(choice.protocol)) return false;
   }
@@ -1487,6 +1486,9 @@ function onChange(event) {
     if ((collection === 'sources' || collection === 'egresses') && /\.(name|protocol)$/.test(path)) {
       renderCollection('rules');
     }
+    if (collection === 'sources' && /\.(kind|url|localUrl|sameVps|content|formatHint|headersJson)$/.test(path)) {
+      renderCollection('rules');
+    }
     if (collection === 'egresses' && /\.(name|enabled|protocol)$/.test(path)) {
       const exportGrid = root.querySelector('#export-grid');
       if (exportGrid) exportGrid.innerHTML = renderExportGrid();
@@ -1516,7 +1518,7 @@ function detailsOpen(key) {
 }
 
 function shouldRefreshCollection(path) {
-  return /\.(name|enabled|kind|protocol)$/.test(path);
+  return /\.(name|enabled|kind|protocol|sameVps)$/.test(path);
 }
 
 function addSource() {
@@ -1525,6 +1527,8 @@ function addSource() {
     name: `Source ${state.sources.length + 1}`,
     kind: 'url',
     url: '',
+    sameVps: false,
+    localUrl: '',
     content: '',
     formatHint: 'auto',
     enabled: true,
@@ -1677,7 +1681,7 @@ function updateStateFromInput(target) {
 }
 
 function maybeInvalidateSourceCache(path) {
-  const match = /^sources\.(\d+)\.(kind|url|content|formatHint|headersJson)$/.exec(String(path || ''));
+  const match = /^sources\.(\d+)\.(kind|url|localUrl|sameVps|content|formatHint|headersJson)$/.exec(String(path || ''));
   if (!match) return;
   const index = Number(match[1]);
   const source = state.sources[index];
@@ -1759,11 +1763,13 @@ function updateArrayFromInput(target) {
     if (rule) {
       const choices = getRuleNodeChoices(rule, ruleIndex).filter((choice) => !choice.placeholder);
       const allowedIds = new Set(choices.map((choice) => choice.id));
-      const currentIds = Array.isArray(rule.match?.nodeIds) ? rule.match.nodeIds.filter((id) => id && id !== EMPTY_NODE_SELECTION) : [];
+      const currentIds = Array.isArray(rule.match?.nodeIds) ? rule.match.nodeIds.filter(Boolean) : [];
       if (currentIds.length > 0) {
         const nextIds = currentIds.filter((id) => allowedIds.has(id));
-        rule.match.nodeIds = nextIds.length > 0 ? nextIds : [EMPTY_NODE_SELECTION];
-        rule.match.protocols = [...new Set(choices.filter((choice) => nextIds.includes(choice.id)).map((choice) => choice.protocol).filter(Boolean))];
+        rule.match.nodeIds = nextIds;
+        rule.match.protocols = nextIds.length > 0
+          ? [...new Set(choices.filter((choice) => nextIds.includes(choice.id)).map((choice) => choice.protocol).filter(Boolean))]
+          : [];
       }
     }
   }
@@ -1783,7 +1789,7 @@ function updateRuleNodeChoice(target) {
 
   const selectedIds = choices.filter((choice) => nextIds.has(choice.id)).map((choice) => choice.id);
   if (selectedIds.length === 0) {
-    rule.match.nodeIds = [EMPTY_NODE_SELECTION];
+    rule.match.nodeIds = [];
     rule.match.protocols = [];
   } else {
     rule.match.nodeIds = selectedIds;
@@ -2446,7 +2452,7 @@ function nodeChecklistField(path, label, choices, extraClass = '', locks = {}) {
   const rule = state.rules[ruleIndex];
   const explicit = isExplicitNodeSelection(rule || {});
   const selectedNodeIds = Array.isArray(rule?.match?.nodeIds)
-    ? rule.match.nodeIds.filter((id) => id && id !== EMPTY_NODE_SELECTION)
+    ? rule.match.nodeIds.filter(Boolean)
     : [];
   return `
     <div class="${cls}">
