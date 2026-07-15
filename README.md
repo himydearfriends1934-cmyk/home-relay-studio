@@ -41,7 +41,7 @@ bash <(curl -fsSL https://raw.githubusercontent.com/himydearfriends1934-cmyk/hom
 
 如果服务器已经登录 Tailscale，安装程序会自动检测 `tailscale ip -4`，并让管理后台监听该 Tailscale 地址。这样浏览器可通过 Tailnet 访问后台，公网 IP 不会直接开放管理页；导出的节点和订阅仍按配置生成，可给外网客户端使用。
 
-Source 里还可以勾选“与节点同 VPS”，然后填一个本机、内网或 Tailscale 地址，甚至直接写 `127.0.0.1:port/path`。系统会优先用这个地址去抓订阅，适合同机服务、内网服务或尾网服务。
+Source 里还可以勾选“与节点同 VPS”。你先填原始订阅地址，勾选后系统会自动把主机换成本机地址；也可以手动改成内网或 Tailscale 地址，甚至直接写 `127.0.0.1:port/path`。
 
 Windows 用户可以双击 `install.cmd`，也可以在 PowerShell 中运行：
 

@@ -772,7 +772,9 @@ function renderSource(source, index) {
   const preview = ui.previews[source.id];
   const sourceTest = ui.sourceTests[source.id];
   const isText = source.kind === 'text';
-  const localUrlHint = source.sameVps ? '同 VPS 时优先使用本机/内网/Tailscale 地址；也可以直接填 127.0.0.1:port/path，系统会自动补 http://。' : '如果源和系统在同一台 VPS 上，可以勾选同 VPS 再填本机地址。';
+  const localUrlHint = source.sameVps
+    ? '勾选后会把当前 URL 的主机自动换成本机地址，保留端口和路径；也可以手动改成内网/Tailscale 地址。'
+    : '如果源和系统在同一台 VPS 上，可以勾选同 VPS，再自动换成本机地址。';
   return `
     <div class="entity" data-kind="source" data-id="${source.id}">
       <div class="entity-summary">
@@ -1476,10 +1478,21 @@ function onChange(event) {
     return;
   }
   if (!target.matches('[data-path]')) return;
-  updateStateFromInput(target);
-  maybeInvalidateSourceCache(target.dataset.path || '');
-  queueSave(true);
   const path = target.dataset.path || '';
+  const sourceMatch = /^sources\.(\d+)\.(kind|url|localUrl|sameVps|content|formatHint|headersJson)$/.exec(path);
+  const sourceIndex = sourceMatch ? Number(sourceMatch[1]) : -1;
+  const previousSource = sourceIndex >= 0 && state.sources[sourceIndex] ? { ...state.sources[sourceIndex] } : null;
+  updateStateFromInput(target);
+  const sourceField = sourceMatch?.[2] || '';
+  const sourceAutoUpdated =
+    sourceMatch && sourceIndex >= 0 && ['kind', 'url', 'sameVps'].includes(sourceField)
+      ? syncSameVpsSourceUrl(sourceIndex, previousSource, sourceField === 'sameVps' && target.checked)
+      : false;
+  maybeInvalidateSourceCache(target.dataset.path || '');
+  if (sourceAutoUpdated) {
+    maybeInvalidateSourceCache(`sources.${sourceIndex}.localUrl`);
+  }
+  queueSave(true);
   const collection = path.split('.')[0];
   if (['sources', 'egresses', 'rules'].includes(collection) && shouldRefreshCollection(path)) {
     renderCollection(collection);
@@ -1518,7 +1531,7 @@ function detailsOpen(key) {
 }
 
 function shouldRefreshCollection(path) {
-  return /\.(name|enabled|kind|protocol|sameVps)$/.test(path);
+  return /\.(name|enabled|kind|protocol|url|localUrl|sameVps|content|formatHint|headersJson)$/.test(path);
 }
 
 function addSource() {
@@ -2517,6 +2530,41 @@ function nodeSummaryField(label, value, extraClass = '') {
 
 function normalizeSelectValue(value) {
   return String(value ?? '');
+}
+
+function normalizeSourceUrlText(value) {
+  const text = String(value ?? '').trim();
+  if (!text) return '';
+  if (/^[a-z][a-z\d+\-.]*:\/\//i.test(text)) return text;
+  if (text.startsWith('//')) return `http:${text}`;
+  return `http://${text}`;
+}
+
+function deriveSameVpsSourceUrl(value) {
+  const text = normalizeSourceUrlText(value);
+  if (!text) return '';
+  try {
+    const url = new URL(text);
+    url.hostname = '127.0.0.1';
+    return url.toString();
+  } catch {
+    return text;
+  }
+}
+
+function syncSameVpsSourceUrl(sourceIndex, previousSource = null, force = false) {
+  const source = state.sources[sourceIndex];
+  if (!source || source.kind === 'text' || !source.sameVps) return false;
+  const derived = deriveSameVpsSourceUrl(source.url);
+  if (!derived) return false;
+  const currentLocal = normalizeSourceUrlText(source.localUrl);
+  if (!force) {
+    const previousDerived = deriveSameVpsSourceUrl(previousSource?.url || '');
+    if (currentLocal && currentLocal !== previousDerived) return false;
+  }
+  if (source.localUrl === derived) return false;
+  source.localUrl = derived;
+  return true;
 }
 
 function importEgressFromQuickBox(index) {

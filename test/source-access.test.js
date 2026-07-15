@@ -14,15 +14,15 @@ test('prefers the local URL for same-VPS sources', () => {
   );
 });
 
-test('falls back to the public URL when same-VPS override is empty', () => {
+test('derives a local URL from the public URL when same-VPS is on', () => {
   assert.equal(
     resolveSourceFetchUrl({
       kind: 'url',
       sameVps: true,
-      url: 'https://public.example.com/sub',
-      localUrl: '   ',
+      url: 'https://public.example.com:8443/sub?x=1',
+      localUrl: '',
     }),
-    'https://public.example.com/sub',
+    'https://127.0.0.1:8443/sub?x=1',
   );
 });
 
