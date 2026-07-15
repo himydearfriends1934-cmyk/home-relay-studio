@@ -349,8 +349,8 @@ textarea.code {
 
 .route-set-panel {
   display: grid;
-  gap: 10px;
-  padding: 12px 14px;
+  gap: 6px;
+  padding: 8px 10px;
   background: #fff;
   border: 1px solid var(--line);
   border-radius: var(--radius);
@@ -361,17 +361,17 @@ textarea.code {
   display: flex;
   justify-content: space-between;
   align-items: center;
-  gap: 12px;
+  gap: 8px;
 }
 
 .route-set-head h2 {
   margin: 0;
-  font-size: 16px;
+  font-size: 14px;
 }
 
 .route-set-head .meta {
   color: var(--muted);
-  font-size: 13px;
+  font-size: 12px;
 }
 
 .route-set-actions {
@@ -379,25 +379,25 @@ textarea.code {
   flex-wrap: wrap;
   align-items: center;
   justify-content: flex-end;
-  gap: 8px;
+  gap: 6px;
 }
 
 .route-set-count {
   display: grid;
   place-items: center;
-  min-width: 28px;
-  height: 28px;
-  padding: 0 8px;
+  min-width: 24px;
+  height: 24px;
+  padding: 0 7px;
   color: var(--accent);
   background: var(--accent-soft);
   border-radius: 999px;
-  font-size: 12px;
+  font-size: 11px;
   font-weight: 800;
 }
 
 .route-set-list {
   display: flex;
-  gap: 10px;
+  gap: 8px;
   overflow-x: auto;
   padding-bottom: 2px;
   scrollbar-width: thin;
@@ -405,17 +405,17 @@ textarea.code {
 
 .route-set-card {
   display: grid;
-  grid-template-columns: auto minmax(150px, 1fr) auto;
+  grid-template-columns: auto minmax(130px, 1fr) auto;
   align-items: center;
-  gap: 10px;
-  min-width: 280px;
-  max-width: 380px;
-  padding: 10px;
+  gap: 8px;
+  min-width: 240px;
+  max-width: 340px;
+  padding: 7px 8px;
   color: var(--text);
   background: #fff;
   border: 1px solid color-mix(in srgb, var(--route-color) 36%, var(--line));
-  border-left: 5px solid var(--route-color);
-  border-radius: 8px;
+  border-left: 4px solid var(--route-color);
+  border-radius: 6px;
   text-align: left;
 }
 
@@ -431,17 +431,18 @@ textarea.code {
 .route-set-index {
   display: grid;
   place-items: center;
-  width: 30px;
-  height: 30px;
+  width: 25px;
+  height: 25px;
   color: #fff;
   background: var(--route-color);
-  border-radius: 8px;
+  border-radius: 6px;
+  font-size: 12px;
   font-weight: 800;
 }
 
 .route-set-main {
   display: grid;
-  gap: 3px;
+  gap: 2px;
   min-width: 0;
 }
 
@@ -454,20 +455,20 @@ textarea.code {
 
 .route-set-main span {
   color: var(--muted);
-  font-size: 12px;
+  font-size: 11px;
 }
 
 .route-set-status {
   display: flex;
   flex-wrap: wrap;
   align-items: center;
-  gap: 8px 12px;
-  padding: 9px 10px;
+  gap: 6px 10px;
+  padding: 6px 8px;
   color: var(--muted);
   background: var(--panel-2);
   border: 1px solid var(--line);
-  border-radius: 8px;
-  font-size: 12px;
+  border-radius: 6px;
+  font-size: 11px;
 }
 
 .route-set-status strong {
@@ -498,12 +499,12 @@ textarea.code {
   width: 100%;
   min-width: 860px;
   border-collapse: collapse;
-  font-size: 13px;
+  font-size: 12px;
 }
 
 .route-set-table th,
 .route-set-table td {
-  padding: 9px 10px;
+  padding: 6px 8px;
   border-top: 1px solid var(--line);
   vertical-align: top;
   text-align: left;
@@ -511,7 +512,7 @@ textarea.code {
 
 .route-set-table th {
   color: var(--muted);
-  font-size: 11px;
+  font-size: 10px;
   font-weight: 800;
   text-transform: uppercase;
 }
@@ -537,7 +538,7 @@ textarea.code {
 
 .route-output-code {
   max-width: 420px;
-  max-height: 72px;
+  max-height: 54px;
   margin: 0;
   overflow: auto;
   white-space: pre;
@@ -545,7 +546,7 @@ textarea.code {
   background: #f8fafc;
   border: 1px solid var(--line);
   border-radius: 6px;
-  padding: 7px 8px;
+  padding: 5px 7px;
   font-size: 11px;
   line-height: 1.35;
 }
@@ -580,8 +581,8 @@ textarea.code {
   display: flex;
   justify-content: space-between;
   align-items: center;
-  gap: 12px;
-  margin-bottom: 12px;
+  gap: 8px;
+  margin-bottom: 8px;
 }
 
 .section-head.compact {
@@ -590,17 +591,17 @@ textarea.code {
 
 .section-head h2 {
   margin: 0;
-  font-size: 16px;
+  font-size: 14px;
 }
 
 .section-head .meta {
   color: var(--muted);
-  font-size: 13px;
+  font-size: 12px;
 }
 
 .entity-list {
   display: grid;
-  gap: 12px;
+  gap: 8px;
 }
 
 .section-title-block {
@@ -610,14 +611,14 @@ textarea.code {
 .section-count {
   display: inline-grid;
   place-items: center;
-  min-width: 22px;
-  height: 22px;
+  min-width: 18px;
+  height: 18px;
   margin-left: 4px;
-  padding: 0 6px;
+  padding: 0 5px;
   color: var(--accent);
   background: var(--accent-soft);
   border-radius: 999px;
-  font-size: 11px;
+  font-size: 10px;
 }
 
 .add-button {
@@ -632,14 +633,14 @@ textarea.code {
   height: 100%;
   min-height: 0;
   min-width: 0;
-  padding: 16px;
+  padding: 10px;
   container-type: inline-size;
 }
 
 .config-section .section-head {
   flex: 0 0 auto;
-  min-height: 56px;
-  padding-bottom: 12px;
+  min-height: 40px;
+  padding-bottom: 6px;
   border-bottom: 1px solid var(--line);
 }
 
@@ -651,7 +652,7 @@ textarea.code {
 .entity-deck {
   display: grid;
   grid-template-rows: auto minmax(0, 1fr);
-  gap: 14px;
+  gap: 8px;
   height: 100%;
   min-height: 0;
 }
@@ -659,9 +660,9 @@ textarea.code {
 .entity-card-row {
   display: flex;
   flex-wrap: nowrap;
-  gap: 8px;
-  min-height: 82px;
-  padding: 1px 1px 5px;
+  gap: 6px;
+  min-height: 64px;
+  padding: 0 1px 3px;
   overflow-x: auto;
   overflow-y: hidden;
   scrollbar-width: thin;
@@ -669,17 +670,17 @@ textarea.code {
 
 .entity-card {
   position: relative;
-  flex: 0 0 clamp(68px, 22%, 76px);
+  flex: 0 0 clamp(58px, 20%, 70px);
   min-width: 0;
   background: #fff;
   border: 1px solid var(--line);
-  border-radius: 8px;
+  border-radius: 6px;
   overflow: hidden;
 }
 
 .entity-card.has-route-color {
   border-color: color-mix(in srgb, var(--route-color) 42%, var(--line));
-  border-top: 4px solid var(--route-color);
+  border-top: 3px solid var(--route-color);
 }
 
 .entity-card.active {
@@ -696,10 +697,10 @@ textarea.code {
   display: grid;
   justify-items: center;
   align-content: center;
-  gap: 5px;
+  gap: 3px;
   width: 100%;
-  min-height: 76px;
-  padding: 8px 6px 7px;
+  min-height: 60px;
+  padding: 5px 4px 4px;
   color: var(--text);
   background: transparent;
   border: 0;
@@ -714,16 +715,16 @@ textarea.code {
 .entity-card-icon {
   display: grid;
   place-items: center;
-  width: 32px;
-  height: 32px;
+  width: 24px;
+  height: 24px;
   color: var(--accent);
   background: var(--accent-soft);
-  border-radius: 10px;
+  border-radius: 7px;
 }
 
 .entity-card-icon svg {
-  width: 21px;
-  height: 21px;
+  width: 16px;
+  height: 16px;
   fill: none;
   stroke: currentColor;
   stroke-width: 1.8;
@@ -736,36 +737,36 @@ textarea.code {
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
-  font-size: 12px;
+  font-size: 11px;
   font-weight: 700;
-  padding: 0 12px 0 2px;
+  padding: 0 8px 0 2px;
 }
 
 .entity-card-index {
   position: absolute;
-  top: 6px;
-  left: 6px;
+  top: 4px;
+  left: 4px;
   display: grid;
   place-items: center;
-  min-width: 18px;
-  height: 18px;
-  padding: 0 5px;
+  min-width: 16px;
+  height: 16px;
+  padding: 0 4px;
   color: #fff;
   background: var(--route-color);
-  border-radius: 6px;
-  font-size: 11px;
+  border-radius: 5px;
+  font-size: 10px;
   font-weight: 800;
 }
 
 .entity-state-dot {
   position: absolute;
-  top: 6px;
-  right: 6px;
-  width: 7px;
-  height: 7px;
+  top: 4px;
+  right: 4px;
+  width: 6px;
+  height: 6px;
   box-sizing: content-box;
   background: #94a3b8;
-  border: 2px solid #fff;
+  border: 1.5px solid #fff;
   border-radius: 999px;
 }
 
@@ -775,16 +776,16 @@ textarea.code {
 
 .entity-card-rename {
   position: absolute;
-  right: 3px;
-  bottom: 3px;
-  width: 22px;
-  height: 22px;
+  right: 2px;
+  bottom: 2px;
+  width: 18px;
+  height: 18px;
   padding: 0;
   color: var(--muted);
   background: rgba(255, 255, 255, 0.9);
   border: 0;
-  border-radius: 6px;
-  font-size: 12px;
+  border-radius: 5px;
+  font-size: 10px;
   line-height: 1;
   opacity: 0;
   transition: opacity 120ms ease;
@@ -819,26 +820,27 @@ textarea.code {
   gap: 10px;
   justify-content: space-between;
   align-items: center;
-  padding: 12px 14px;
+  padding: 8px 10px;
   background: var(--panel-2);
   border-bottom: 1px solid var(--line);
-  border-radius: 8px 8px 0 0;
+  border-radius: 6px 6px 0 0;
 }
 
 .summary-left {
   display: flex;
   align-items: center;
-  gap: 8px;
+  gap: 6px;
   min-width: 0;
   overflow: hidden;
 }
 
 .summary-title {
   font-weight: 600;
+  font-size: 14px;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
-  max-width: 360px;
+  max-width: 280px;
 }
 
 .pill {
@@ -846,8 +848,8 @@ textarea.code {
   align-items: center;
   border-radius: 999px;
   border: 1px solid var(--line);
-  padding: 0.15rem 0.5rem;
-  font-size: 12px;
+  padding: 0.1rem 0.4rem;
+  font-size: 11px;
   color: var(--muted);
   background: #fff;
 }
@@ -872,40 +874,45 @@ textarea.code {
 .summary-actions {
   display: flex;
   flex-wrap: wrap;
-  gap: 6px;
+  gap: 4px;
   flex: 0 0 auto;
+}
+
+.entity-summary button {
+  padding: 0.3rem 0.55rem;
+  font-size: 12px;
 }
 
 .more-menu > summary {
   display: grid;
   place-items: center;
-  width: 34px;
-  height: 34px;
+  width: 28px;
+  height: 28px;
   padding: 0;
   color: var(--muted);
 }
 
 .more-popover {
-  top: 34px;
+  top: 28px;
 }
 
 .entity-body {
   display: grid;
-  gap: 12px;
-  padding: 14px;
+  gap: 8px;
+  padding: 10px;
 }
 
 .egress-quick-import {
   display: grid;
-  gap: 8px;
-  padding: 10px;
+  gap: 6px;
+  padding: 8px;
   background: #f8fafc;
   border: 1px solid var(--line);
   border-radius: 8px;
 }
 
 .egress-quick-import-input {
-  min-height: 74px;
+  min-height: 58px;
   font-family: ui-monospace, SFMono-Regular, Consolas, "Liberation Mono", monospace;
   font-size: 12px;
   line-height: 1.45;
@@ -915,7 +922,7 @@ textarea.code {
   display: flex;
   flex-wrap: wrap;
   align-items: center;
-  gap: 8px 10px;
+  gap: 6px 8px;
 }
 
 .egress-quick-import-actions .field-hint {
@@ -929,13 +936,13 @@ textarea.code {
 
 .field-grid {
   display: grid;
-  gap: 10px 12px;
+  gap: 8px 10px;
   grid-template-columns: repeat(2, minmax(0, 1fr));
 }
 
 .field {
   display: grid;
-  gap: 4px;
+  gap: 3px;
 }
 
 .field > span,
