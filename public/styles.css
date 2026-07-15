@@ -81,7 +81,6 @@ button.click-feedback,
 .button-link.click-feedback,
 .tools-menu > summary.click-feedback,
 .more-menu > summary.click-feedback,
-.route-copy-menu > summary.click-feedback,
 .advanced > summary.click-feedback,
 .entity-card-select.click-feedback {
   transform: translateY(1px) scale(0.985);
@@ -293,14 +292,12 @@ textarea.code {
 }
 
 .tools-menu,
-.more-menu,
-.route-copy-menu {
+.more-menu {
   position: relative;
 }
 
 .tools-menu > summary,
-.more-menu > summary,
-.route-copy-menu > summary {
+.more-menu > summary {
   list-style: none;
   border: 1px solid var(--line-strong);
   background: #fff;
@@ -310,19 +307,16 @@ textarea.code {
 }
 
 .tools-menu > summary::-webkit-details-marker,
-.more-menu > summary::-webkit-details-marker,
-.route-copy-menu > summary::-webkit-details-marker {
+.more-menu > summary::-webkit-details-marker {
   display: none;
 }
 
-.tools-menu > summary,
-.route-copy-menu > summary {
+.tools-menu > summary {
   padding: 0.45rem 0.7rem;
 }
 
 .tools-popover,
-.more-popover,
-.route-copy-popover {
+.more-popover {
   position: absolute;
   right: 0;
   z-index: 20;
@@ -503,65 +497,6 @@ textarea.code {
 
 .route-set-row.is-off {
   opacity: 0.74;
-}
-
-.route-copy-menu {
-  display: inline-block;
-}
-
-.route-copy-menu > summary {
-  display: inline-flex;
-  align-items: center;
-  gap: 6px;
-}
-
-.route-copy-menu > summary::after {
-  content: "▾";
-  color: var(--muted);
-  font-size: 11px;
-  line-height: 1;
-}
-
-.route-copy-menu[open] > summary {
-  background: var(--accent-soft);
-  border-color: #9fd6d0;
-  color: var(--accent);
-}
-
-.route-copy-popover {
-  top: 34px;
-  min-width: 300px;
-  max-width: min(360px, calc(100vw - 32px));
-}
-
-.route-copy-head {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 10px;
-}
-
-.route-copy-actions {
-  display: grid;
-  gap: 6px;
-}
-
-.route-copy-divider {
-  height: 1px;
-  background: var(--line);
-  margin: 2px 0;
-}
-
-.route-copy-label {
-  color: var(--muted);
-  font-size: 12px;
-  font-weight: 800;
-}
-
-.route-copy-popover .protocol-check-list {
-  grid-template-columns: 1fr;
-  max-height: 220px;
-  overflow: auto;
 }
 
 .route-output-code {
@@ -1127,6 +1062,168 @@ textarea.code {
   gap: 12px;
   justify-items: center;
   text-align: center;
+}
+
+#route-copy-sheet {
+  position: fixed;
+  inset: 0;
+  z-index: 40;
+  pointer-events: none;
+}
+
+.route-copy-backdrop {
+  position: fixed;
+  inset: 0;
+  background: rgba(15, 23, 42, 0.38);
+  pointer-events: auto;
+}
+
+.route-copy-sheet {
+  position: fixed;
+  top: 8vh;
+  left: 50%;
+  z-index: 41;
+  display: grid;
+  grid-template-rows: auto auto minmax(0, 1fr);
+  gap: 14px;
+  width: min(440px, calc(100vw - 28px));
+  max-height: min(82vh, 860px);
+  padding: 16px;
+  overflow: hidden;
+  background: #fff;
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  box-shadow: 0 28px 80px rgba(15, 23, 42, 0.18);
+  transform: translateX(-50%);
+  pointer-events: auto;
+}
+
+.route-copy-sheet-head {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  gap: 12px;
+}
+
+.route-copy-sheet-head h2 {
+  margin: 2px 0 0;
+  font-size: 20px;
+}
+
+.route-copy-sheet-kicker {
+  color: var(--muted);
+  font-size: 12px;
+  font-weight: 800;
+  text-transform: uppercase;
+}
+
+.route-copy-close {
+  width: 32px;
+  height: 32px;
+  padding: 0;
+  border-radius: 6px;
+  font-size: 20px;
+  line-height: 1;
+}
+
+.route-copy-sheet-tabs {
+  margin: 0;
+  border-bottom: 1px solid var(--line);
+}
+
+.route-copy-sheet-tabs button {
+  flex: 1;
+  padding: 10px 0 12px;
+  border: 0;
+  border-bottom: 2px solid transparent;
+  border-radius: 0;
+  background: transparent;
+  color: var(--muted);
+  font-weight: 800;
+  letter-spacing: 0;
+}
+
+.route-copy-sheet-tabs button.active {
+  color: var(--text);
+  background: transparent;
+  border-color: var(--text);
+}
+
+.route-copy-sheet-body {
+  display: grid;
+  gap: 14px;
+  min-height: 0;
+  overflow: auto;
+  padding-right: 2px;
+}
+
+.route-copy-sheet-summary {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: space-between;
+  align-items: center;
+  gap: 8px 12px;
+}
+
+.route-copy-card-grid {
+  display: grid;
+  gap: 12px;
+  grid-template-columns: 1fr;
+}
+
+.route-copy-card {
+  display: grid;
+  gap: 8px;
+  justify-items: center;
+  text-align: center;
+  padding: 12px;
+  background: #fff;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+}
+
+.route-copy-card-label {
+  color: var(--muted);
+  font-size: 12px;
+  font-weight: 800;
+  text-transform: uppercase;
+}
+
+.route-copy-card-title {
+  font-size: 15px;
+}
+
+.route-copy-card-actions {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: center;
+  gap: 8px;
+}
+
+.route-copy-qr {
+  width: 220px;
+  max-width: 100%;
+}
+
+.route-copy-toolbar {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.route-copy-protocol-head {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  gap: 12px;
+}
+
+.route-copy-protocol-list {
+  grid-template-columns: 1fr;
+}
+
+.route-copy-preview textarea.code {
+  min-height: 180px;
 }
 
 .output-controls {

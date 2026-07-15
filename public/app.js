@@ -56,6 +56,7 @@ const ui = {
     running: false,
     error: '',
   },
+  routeCopySheet: null,
   openDetails: new Set(),
   actionFeedbackTimer: null,
 };
@@ -101,6 +102,7 @@ function renderShell() {
 
       <section class="route-set-panel" id="route-set-panel"></section>
       <div class="action-feedback" id="action-feedback" aria-live="polite" role="status"></div>
+      <div id="route-copy-sheet"></div>
 
       <div class="config-grid">
         <section class="band config-section" data-collection="sources">
@@ -162,6 +164,7 @@ function renderEditors() {
   renderCollection('egresses');
   renderCollection('rules');
   root.querySelector('#export-grid').innerHTML = renderExportGrid();
+  renderRouteCopySheet();
   updateCounts();
 }
 
@@ -347,38 +350,151 @@ function buildRouteOutputCode(set, assignments, sourceNames, egressNames) {
 
 function renderRouteCopyMenu(set, output) {
   if (!output?.code) return '<button disabled>复制</button>';
-  const protocols = Array.isArray(output.protocols) && output.protocols.length ? output.protocols : PROTOCOL_OPTIONS;
-  const protocolCounts = getRouteOutputProtocolCounts(output.code);
-  return `
-    <details class="route-copy-menu">
-      <summary title="选择复制方式">复制</summary>
-      <div class="route-copy-popover">
-        <div class="route-copy-head">
-          <strong>复制输出</strong>
-          <span class="muted">${Number(output.nodeCount || 0)} 个节点</span>
+  return `<button data-action="open-route-copy-sheet" data-route-set-index="${set.index}" class="primary">复制</button>`;
+}
+
+function renderRouteCopySheet() {
+  const panel = root.querySelector('#route-copy-sheet');
+  if (!panel) return;
+  const data = getRouteCopySheetData();
+  if (!data) {
+    panel.innerHTML = '';
+    return;
+  }
+  const { set, sheet, output } = data;
+  const tab = sheet.tab === 'links' ? 'links' : 'subscription';
+  const protocolChoices = getRouteCopySheetProtocolChoices(output);
+  const selectedProtocols = getRouteCopySheetSelectedProtocols(output);
+  const protocolSummary = selectedProtocols.length
+    ? selectedProtocols.map((protocol) => PROTOCOL_LABELS[protocol] || protocol).join(', ')
+    : '未选择协议';
+  const primaryFormat = ui.exportFormat || 'shadowrocket';
+  const secondaryFormat = primaryFormat === 'sing-box' ? 'clash' : 'sing-box';
+  const sourceNames = set?.sourceIds?.map((id) => state.sources.find((item) => item.id === id)?.name || id).join(', ') || 'Any source';
+  const egressNames = set?.egressIds?.map((id) => state.egresses.find((item) => item.id === id)?.name || id).join(', ') || 'No egress';
+  panel.innerHTML = `
+    <div class="route-copy-backdrop" data-action="close-route-copy-sheet"></div>
+    <section class="route-copy-sheet" role="dialog" aria-modal="true" aria-labelledby="route-copy-sheet-title">
+      <div class="route-copy-sheet-head">
+        <div>
+          <div class="route-copy-sheet-kicker">QrCode</div>
+          <h2 id="route-copy-sheet-title">${escapeHtml(set?.title || `Route ${output.index + 1}`)}</h2>
+          <div class="meta">${escapeHtml(sourceNames)} · ${escapeHtml(egressNames)}</div>
         </div>
-        <div class="route-copy-actions">
-          <button data-action="copy-route-output" data-route-set-index="${set.index}" data-copy-mode="full">复制订阅内容</button>
-          <button data-action="copy-route-output" data-route-set-index="${set.index}" data-copy-mode="nodes">复制节点列表</button>
-        </div>
-        <div class="route-copy-divider"></div>
-        <div class="route-copy-label">协议筛选</div>
-        <div class="protocol-check-list route-copy-protocol-list">
-          ${protocols.map((protocol) => {
-            const count = protocolCounts.get(normalizeRouteProtocol(protocol)) || 0;
-            return `
-              <label class="protocol-check-item checked">
-                <input data-copy-protocol="${escapeHtml(protocol)}" type="checkbox" checked />
-                <span class="protocol-check-name">${escapeHtml(PROTOCOL_LABELS[protocol] || protocol)}</span>
-                <small>${count} 个节点</small>
-              </label>
-            `;
-          }).join('')}
-        </div>
-        <button class="primary" data-action="copy-route-output" data-route-set-index="${set.index}" data-copy-mode="protocols">复制所选协议</button>
+        <button class="route-copy-close" data-action="close-route-copy-sheet" aria-label="关闭">×</button>
       </div>
-    </details>
+      <div class="tabs route-copy-sheet-tabs">
+        <button data-route-copy-tab="subscription" class="${tab === 'subscription' ? 'active' : ''}">SUBSCRIPTION</button>
+        <button data-route-copy-tab="links" class="${tab === 'links' ? 'active' : ''}">LINKS</button>
+      </div>
+      ${tab === 'subscription'
+        ? renderRouteCopySubscriptionTab(primaryFormat, secondaryFormat)
+        : renderRouteCopyLinksTab(output, protocolChoices, selectedProtocols, protocolSummary)}
+    </section>
   `;
+}
+
+function renderRouteCopySubscriptionTab(primaryFormat, secondaryFormat) {
+  const primaryMeta = EXPORT_FORMATS.find((item) => item.id === primaryFormat) || EXPORT_FORMATS[0];
+  const secondaryMeta = EXPORT_FORMATS.find((item) => item.id === secondaryFormat) || EXPORT_FORMATS[0];
+  return `
+    <div class="route-copy-sheet-body">
+      <div class="route-copy-card-grid">
+        ${renderRouteCopyQrCard(primaryMeta, primaryFormat, 'Subscription', '当前导出格式')}
+        ${renderRouteCopyQrCard(secondaryMeta, secondaryFormat, secondaryFormat === 'sing-box' ? 'JSON Subscription' : 'Alternate Subscription', '备用输出')}
+      </div>
+    </div>
+  `;
+}
+
+function renderRouteCopyQrCard(meta, format, label, hint) {
+  const shadowrocketAction = format === 'shadowrocket'
+    ? `<a class="button-link primary" href="${escapeHtml(getShadowrocketImportUrl(getExportUrl(format)))}">添加到 Shadowrocket</a>`
+    : '';
+  return `
+    <div class="route-copy-card">
+      <div class="route-copy-card-label">${escapeHtml(label)}</div>
+      <img class="qr-image route-copy-qr" src="${escapeHtml(getExportQrUrl(format))}" alt="${escapeHtml(meta.label)} QR" />
+      <strong class="route-copy-card-title">${escapeHtml(meta.label)}</strong>
+      <div class="muted">${escapeHtml(hint)}</div>
+      <div class="route-copy-card-actions">
+        ${shadowrocketAction}
+        <button data-action="copy-export-format-link" data-export-format="${escapeHtml(format)}">复制链接</button>
+        <button data-action="open-export-format-link" data-export-format="${escapeHtml(format)}">打开链接</button>
+        <a class="button-link" href="${escapeHtml(getExportUrl(format, true))}">下载</a>
+      </div>
+    </div>
+  `;
+}
+
+function renderRouteCopyLinksTab(output, protocolChoices, selectedProtocols, protocolSummary) {
+  let preview = '';
+  if (selectedProtocols.length === 0) preview = '请至少选择一个协议。';
+  else {
+    try {
+      preview = filterRouteOutputByProtocols(output.code, selectedProtocols);
+    } catch (error) {
+      preview = formatActionError(error);
+    }
+  }
+  return `
+    <div class="route-copy-sheet-body">
+      <div class="route-copy-sheet-summary">
+        <strong>${Number(output.nodeCount || 0)} nodes</strong>
+        <span class="muted">${escapeHtml(protocolSummary)}</span>
+      </div>
+      <div class="route-copy-toolbar">
+        <button data-action="copy-route-output" data-route-set-index="${output.index}" data-copy-mode="full">复制订阅内容</button>
+        <button data-action="copy-route-output" data-route-set-index="${output.index}" data-copy-mode="nodes">复制节点列表</button>
+        <button class="primary" data-action="copy-route-output" data-route-set-index="${output.index}" data-copy-mode="protocols">复制所选协议</button>
+      </div>
+      <div class="route-copy-protocol-head">
+        <div>
+          <strong>协议选择</strong>
+          <div class="muted">选中几个协议，就会输出几个协议。</div>
+        </div>
+        <button data-action="reset-route-copy-protocols" data-route-set-index="${output.index}">恢复默认</button>
+      </div>
+      <div class="protocol-check-list route-copy-protocol-list">
+        ${protocolChoices.map((protocol) => {
+          const checked = selectedProtocols.includes(protocol);
+          const count = getRouteOutputProtocolCounts(output.code).get(normalizeRouteProtocol(protocol)) || 0;
+          return `
+            <label class="protocol-check-item ${checked ? 'checked' : ''}">
+              <input data-route-copy-protocol="${escapeHtml(protocol)}" type="checkbox" ${checked ? 'checked' : ''} />
+              <span class="protocol-check-name">${escapeHtml(PROTOCOL_LABELS[protocol] || protocol)}</span>
+              <small>${count} 个节点</small>
+            </label>
+          `;
+        }).join('')}
+      </div>
+      <label class="field wide route-copy-preview">
+        <span>输出预览</span>
+        <textarea class="code" readonly>${escapeHtml(preview)}</textarea>
+      </label>
+    </div>
+  `;
+}
+
+function getRouteCopySheetData() {
+  const sheet = ui.routeCopySheet;
+  if (!sheet) return null;
+  const output = getRouteOutputByIndex(sheet.index);
+  if (!output?.code) return null;
+  const set = getRouteSets().find((item) => item.index === sheet.index) || null;
+  return { sheet, output, set };
+}
+
+function getRouteCopySheetProtocolChoices(output) {
+  const choices = Array.isArray(output.protocols) && output.protocols.length ? output.protocols : PROTOCOL_OPTIONS;
+  return uniqueStrings(choices.filter(Boolean));
+}
+
+function getRouteCopySheetSelectedProtocols(output) {
+  const sheet = ui.routeCopySheet;
+  const choices = getRouteCopySheetProtocolChoices(output);
+  const selected = Array.isArray(sheet?.protocols) ? sheet.protocols.filter((protocol) => choices.includes(protocol)) : [];
+  return selected;
 }
 
 function uniqueStrings(values) {
@@ -881,9 +997,15 @@ function onClick(event) {
   }
 
   const routeSetCard = event.target.closest('[data-route-set]');
-  if (routeSetCard && !event.target.closest('[data-action], .route-copy-menu')) {
+  if (routeSetCard && !event.target.closest('[data-action], .route-copy-sheet')) {
     selectRouteSet(Number(routeSetCard.dataset.routeSet));
     showActionFeedback('已打开链路', 'done');
+    return;
+  }
+
+  const routeCopyTabButton = event.target.closest('[data-route-copy-tab]');
+  if (routeCopyTabButton) {
+    setRouteCopySheetTab(routeCopyTabButton.dataset.routeCopyTab);
     return;
   }
 
@@ -899,7 +1021,7 @@ function onClick(event) {
   if (!button) return;
   const action = button.dataset.action;
   const id = button.dataset.id;
-  const menu = button.closest('.tools-menu, .more-menu, .route-copy-menu');
+  const menu = button.closest('.tools-menu, .more-menu');
   if (menu) menu.removeAttribute('open');
 
   switch (action) {
@@ -939,16 +1061,26 @@ function onClick(event) {
       return runButtonAction(button, '识别 Egress', () => importEgressFromQuickBox(Number(button.dataset.index)));
     case 'copy-config':
       return runButtonAction(button, '复制配置', () => copyCurrentConfig());
+    case 'open-route-copy-sheet':
+      return openRouteCopySheet(Number(button.dataset.routeSetIndex));
     case 'copy-route-output': {
       const mode = button.dataset.copyMode || 'full';
       const label = getRouteCopyActionLabel(mode);
-      return runButtonAction(button, label, () => copyRouteOutput(Number(button.dataset.routeSetIndex), mode, menu));
+      return runButtonAction(button, label, () => copyRouteOutput(Number(button.dataset.routeSetIndex), mode));
     }
     case 'copy-export-link':
       return runButtonAction(button, '复制链接', () => copyText(getExportUrl(ui.exportFormat)));
+    case 'copy-export-format-link':
+      return runButtonAction(button, '复制链接', () => copyText(getExportUrl(button.dataset.exportFormat || ui.exportFormat)));
     case 'open-export-link':
       return runButtonAction(button, '打开链接', () => {
         const opened = window.open(getExportUrl(ui.exportFormat), '_blank', 'noopener');
+        if (!opened) throw new Error('浏览器拦截了弹窗。');
+        return opened;
+      });
+    case 'open-export-format-link':
+      return runButtonAction(button, '打开链接', () => {
+        const opened = window.open(getExportUrl(button.dataset.exportFormat || ui.exportFormat), '_blank', 'noopener');
         if (!opened) throw new Error('浏览器拦截了弹窗。');
         return opened;
       });
@@ -956,6 +1088,10 @@ function onClick(event) {
       return runButtonAction(button, '下载配置', () => downloadText('sing-box.config.json', JSON.stringify(ui.generated?.config || {}, null, 2)));
     case 'download-snapshot':
       return runButtonAction(button, '下载快照', () => downloadText('relay.snapshot.json', JSON.stringify(ui.generated?.snapshot || {}, null, 2)));
+    case 'close-route-copy-sheet':
+      return closeRouteCopySheet();
+    case 'reset-route-copy-protocols':
+      return resetRouteCopySheetProtocols();
     default:
       return runButtonAction(button, '操作', () => {});
   }
@@ -1047,8 +1183,8 @@ function onChange(event) {
     renderOutput();
     return;
   }
-  if (target.matches('[data-copy-protocol]')) {
-    target.closest('.protocol-check-item')?.classList.toggle('checked', target.checked);
+  if (target.matches('[data-route-copy-protocol]')) {
+    updateRouteCopySheetProtocol(target.dataset.routeCopyProtocol, target.checked);
     return;
   }
   if (target.matches('[data-array-path]')) {
@@ -1547,6 +1683,7 @@ function renderOutput() {
   const panel = root.querySelector('#output-panel');
   if (!panel) return;
   panel.innerHTML = ui.mode === 'config' ? renderExportOutput() : renderDiagnoseOutput();
+  renderRouteCopySheet();
   root.querySelectorAll('[data-view]').forEach((button) => {
     button.classList.toggle('active', button.dataset.view === ui.mode);
   });
@@ -2238,6 +2375,48 @@ function copyCurrentConfig() {
   return copyText(JSON.stringify(ui.generated.config, null, 2));
 }
 
+function openRouteCopySheet(index) {
+  const output = getRouteOutputByIndex(index);
+  if (!output?.code) throw new Error('请先生成这个链路输出。');
+  ui.routeCopySheet = {
+    index,
+    tab: 'subscription',
+    protocols: getRouteCopySheetProtocolChoices(output),
+  };
+  renderRouteCopySheet();
+  showActionFeedback('已打开复制面板', 'done');
+}
+
+function closeRouteCopySheet() {
+  if (!ui.routeCopySheet) return;
+  ui.routeCopySheet = null;
+  renderRouteCopySheet();
+  showActionFeedback('已关闭复制面板', 'done');
+}
+
+function setRouteCopySheetTab(tab) {
+  if (!ui.routeCopySheet) return;
+  ui.routeCopySheet.tab = tab === 'links' ? 'links' : 'subscription';
+  renderRouteCopySheet();
+}
+
+function resetRouteCopySheetProtocols() {
+  const data = getRouteCopySheetData();
+  if (!data) return;
+  ui.routeCopySheet.protocols = getRouteCopySheetProtocolChoices(data.output);
+  renderRouteCopySheet();
+}
+
+function updateRouteCopySheetProtocol(protocol, checked) {
+  const sheet = ui.routeCopySheet;
+  if (!sheet) return;
+  const current = new Set(Array.isArray(sheet.protocols) ? sheet.protocols : []);
+  if (checked) current.add(protocol);
+  else current.delete(protocol);
+  sheet.protocols = Array.from(current);
+  renderRouteCopySheet();
+}
+
 function copyText(value) {
   const text = String(value ?? '');
   if (navigator.clipboard?.writeText) return navigator.clipboard.writeText(text);
@@ -2256,11 +2435,11 @@ function copyText(value) {
   return Promise.resolve();
 }
 
-function copyRouteOutput(index, mode = 'full', menu = null) {
+function copyRouteOutput(index, mode = 'full') {
   const output = getRouteOutputByIndex(index);
   if (!output?.code) throw new Error('请先生成这个链路输出。');
   if (mode === 'nodes') return copyText(getRouteOutputNodeList(output.code));
-  if (mode === 'protocols') return copyText(filterRouteOutputByProtocols(output.code, getSelectedRouteCopyProtocols(menu)));
+  if (mode === 'protocols') return copyText(filterRouteOutputByProtocols(output.code, getSelectedRouteCopyProtocols(output)));
   return copyText(output.code);
 }
 
@@ -2274,11 +2453,9 @@ function getRouteCopyActionLabel(mode) {
   return '复制订阅内容';
 }
 
-function getSelectedRouteCopyProtocols(menu) {
-  const inputs = Array.from(menu?.querySelectorAll('[data-copy-protocol]') || []);
-  const selected = inputs.filter((input) => input.checked).map((input) => input.dataset.copyProtocol).filter(Boolean);
-  if (selected.length === 0) throw new Error('请先选择至少一个协议。');
-  return selected;
+function getSelectedRouteCopyProtocols(output) {
+  const selected = Array.isArray(ui.routeCopySheet?.protocols) ? ui.routeCopySheet.protocols.filter(Boolean) : [];
+  return uniqueStrings(selected.filter((protocol) => getRouteCopySheetProtocolChoices(output).includes(protocol)));
 }
 
 function getRouteOutputNodeList(code) {
